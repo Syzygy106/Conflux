@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import {BaseHook} from "@openzeppelin/uniswap-hooks/src/base/BaseHook.sol";
-import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
-import {IPoolManager, SwapParams, ModifyLiquidityParams} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
-import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
-import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
+import {BaseHook} from "../lib/uniswap-hooks/src/base/BaseHook.sol";
+import {Hooks} from "../lib/v4-core/src/libraries/Hooks.sol";
+import {IPoolManager, SwapParams, ModifyLiquidityParams} from "../lib/v4-core/src/interfaces/IPoolManager.sol";
+import {PoolKey} from "../lib/v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "../lib/v4-core/src/types/PoolId.sol";
+import {BalanceDelta} from "../lib/v4-core/src/types/BalanceDelta.sol";
+import {Currency} from "../lib/v4-core/src/types/Currency.sol";
+import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "../lib/v4-core/src/types/BeforeSwapDelta.sol";
 import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";

@@ -2,10 +2,7 @@
 pragma solidity ^0.8.30;
 
 // Re-export the hook so Hardhat picks it up with npm-based deps
-import "@openzeppelin/uniswap-hooks/src/base/BaseHook.sol";
-import "@uniswap/v4-core/src/libraries/Hooks.sol";
-import "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import "@uniswap/v4-core/src/types/PoolKey.sol";
+import "../uniswap-v4/lib/uniswap-hooks/src/base/BaseHook.sol";
 
 import {Conflux} from "../uniswap-v4/src/Conflux.sol";
 

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
-import {PoolId, PoolIdLibrary} from "@uniswap/v4-core/src/types/PoolId.sol";
+import {PoolKey} from "../../lib/v4-core/src/types/PoolKey.sol";
+import {PoolId, PoolIdLibrary} from "../../lib/v4-core/src/types/PoolId.sol";
 
 /// @notice Abstract contract for per-pool ownership management
 abstract contract PoolOwnable {
