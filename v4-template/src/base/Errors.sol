@@ -21,3 +21,5 @@ error DaemonIsBanned();
 error NotDaemonOwner();
 error CountInvalid();
 error StartInvalid();
+error NotOwner();
+error NotAuthorized();

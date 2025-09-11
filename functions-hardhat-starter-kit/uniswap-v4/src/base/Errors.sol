@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-// Common custom errors to reduce bytecode size compared to revert strings
-
 error NotHookOwner();
 error ZeroAddress();
 error ZeroValue();
@@ -21,3 +19,6 @@ error DaemonIsBanned();
 error NotDaemonOwner();
 error CountInvalid();
 error StartInvalid();
+
+error NotOwner();
+error NotAuthorized();

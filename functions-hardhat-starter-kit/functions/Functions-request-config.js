@@ -23,7 +23,13 @@ module.exports = {
   callbackGasLimit: 300000,
 
   // Secrets & args
-  secretsLocation: 1, // Remote by default for toolkit; we use no secrets on local
+  secretsLocation: 2, // Location.DONHosted for production-like setup
+  secrets: {
+    // Пример секретов для продакшена (API ключи, RPC URLs и т.д.)
+    rpcUrl: "http://localhost:8545",
+    chainId: "1337",
+    // apiKey: "your-api-key-here", // раскомментировать при необходимости
+  },
   // Args: registry only (registry provides compact aggregation APIs)
   args: [reg.address],
   expectedReturnType: "bytes",

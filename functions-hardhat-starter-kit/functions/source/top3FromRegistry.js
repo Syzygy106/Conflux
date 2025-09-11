@@ -1,5 +1,5 @@
 // Runs inside Chainlink Functions (Deno runtime)
-// Uses localFunctionsTestnet JSON-RPC at http://localhost:8545
+// Uses secrets from DON for production-like setup
 // New Args: [registryAddress]
 
 if (!args || args.length < 1) {
@@ -10,8 +10,12 @@ const REGISTRY = args[0]
 
 const { ethers } = await import("npm:ethers@6.9.0")
 
-// Use JsonRpcProvider with static network to avoid extra eth_chainId probe (saves 1 HTTP)
-const provider = new ethers.JsonRpcProvider("http://localhost:8545", { chainId: 1337, name: "localFunctionsTestnet" })
+// Use secrets from DON for RPC configuration
+const rpcUrl = secrets.rpcUrl || "http://localhost:8545"
+const chainId = parseInt(secrets.chainId || "1337")
+
+// Use JsonRpcProvider with secrets-based configuration
+const provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: "localFunctionsTestnet" })
 
 // Registry interface for length stub + ranged aggregation
 const regIface = new ethers.Interface([
