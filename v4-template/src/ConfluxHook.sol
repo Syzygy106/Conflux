@@ -30,6 +30,7 @@ interface IDaemonRegistryModerated {
   function addressToId(address daemon) external view returns (uint16);
   function setActiveFromHook(address daemon, bool isActive) external;
   function banFromHook(address daemon) external;
+  function banned(address daemon) external view returns (bool);
 }
 
 contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable {
@@ -118,6 +119,13 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable {
     }
 
     address rebatePayer = topOracle.getCurrentTop();
+
+    // Check if daemon is banned - if so, skip to next daemon
+    if (registry.banned(rebatePayer)) {
+      processedInTopEpoch++;
+      topOracle.iterNextTop();
+      return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+    }
 
     // Pool must contain rebateToken — otherwise no-op
     address token0 = Currency.unwrap(key.currency0);
