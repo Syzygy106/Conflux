@@ -22,13 +22,21 @@ contract TopOracle is FunctionsClient {
 
   // Owner (simple ownable without dependencies to avoid bloating the code)
   address public owner;
+  address public hookAuthority; // Hook contract that can call restricted functions
+  
   modifier onlyOwner() {
     require(msg.sender == owner, "only owner");
+    _;
+  }
+  
+  modifier onlyHookAuthority() {
+    require(msg.sender == hookAuthority, "only hook authority");
     _;
   }
 
   event OwnerTransferred(address indexed previousOwner, address indexed newOwner);
   event RegistryUpdated(address indexed newRegistry);
+  event HookAuthoritySet(address indexed hookAuthority);
 
   // === Top data (128 ids packed into 8 words) ===
   uint256[8] public topPacked;   // 16 * 8 ids in 8 * 256-bit words
@@ -54,12 +62,14 @@ contract TopOracle is FunctionsClient {
   event TemplateUpdated(uint64 subscriptionId, uint32 callbackGasLimit);
   event EpochDurationUpdated(uint256 blocks);
 
-  constructor(address router, bytes32 _donId, address _registry) FunctionsClient(router) {
+  constructor(address router, bytes32 _donId, address _registry, address _hookAuthority) FunctionsClient(router) {
     donId = _donId;
     registry = _registry;
+    hookAuthority = _hookAuthority;
     owner = msg.sender;
     emit OwnerTransferred(address(0), msg.sender);
     emit RegistryUpdated(_registry);
+    emit HookAuthoritySet(_hookAuthority);
   }
 
   // ===== Admin =====
@@ -73,6 +83,12 @@ contract TopOracle is FunctionsClient {
   function setRegistry(address _registry) external onlyOwner {
     registry = _registry;
     emit RegistryUpdated(_registry);
+  }
+
+  function setHookAuthority(address _hookAuthority) external onlyOwner {
+    require(_hookAuthority != address(0), "zero hook authority");
+    hookAuthority = _hookAuthority;
+    emit HookAuthoritySet(_hookAuthority);
   }
 
   /**
@@ -144,7 +160,7 @@ contract TopOracle is FunctionsClient {
    * @notice If epoch has expired and there is no pending request — sends new Functions request,
    *         using saved CBOR template. This is NO LONGER a mockup.
    */
-  function maybeRequestTopUpdate() external {
+  function maybeRequestTopUpdate() external onlyHookAuthority {
     if (epochDurationBlocks == 0) return;
 
     bool expired = block.number >= lastEpochStartBlock + epochDurationBlocks;
@@ -214,7 +230,7 @@ contract TopOracle is FunctionsClient {
     daemon = IDaemonRegistryView(registry).getById(id);
   }
 
-  function iterNextTop() external {
+  function iterNextTop() external onlyHookAuthority {
     require(topCount > 0, "EmptyTop");
     unchecked {
       uint16 next = topCursor + 1;

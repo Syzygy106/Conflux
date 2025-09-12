@@ -53,8 +53,9 @@ contract TestableTopOracle is TopOracle {
     constructor(
         address router,
         bytes32 _donId,
-        address _registry
-    ) TopOracle(router, _donId, _registry) {}
+        address _registry,
+        address _hookAuthority
+    ) TopOracle(router, _donId, _registry, _hookAuthority) {}
     
     // Expose fulfillRequest for testing
     function testFulfillRequest(
@@ -135,15 +136,16 @@ contract ConfluxHookTest is Test, Deployers {
         
         // Deploy TopOracle (testable version)
         bytes32 donId = keccak256("test-don");
-        topOracle = new TestableTopOracle(address(functionsRouter), donId, address(0)); // Registry will be set later
+        topOracle = new TestableTopOracle(address(functionsRouter), donId, address(0), address(0)); // Registry and hook will be set later
         functionsRouter.setTopOracle(address(topOracle));
         
         // Deploy DaemonRegistryModerated
         vm.prank(registryOwner);
         registry = new DaemonRegistryModerated();
         
-        // Update TopOracle with registry address
+        // Update TopOracle with registry address and hook authority
         topOracle.setRegistry(address(registry));
+        topOracle.setHookAuthority(address(hook));
         
         // Deploy the hook to an address with the correct flags
         address flags = address(
@@ -216,9 +218,9 @@ contract ConfluxHookTest is Test, Deployers {
         setupTopOracleEpoch();
     }
     
-    function addLiquidityForPool(PoolKey memory poolKey) internal {
-        int24 tickLower = TickMath.minUsableTick(poolKey.tickSpacing);
-        int24 tickUpper = TickMath.maxUsableTick(poolKey.tickSpacing);
+    function addLiquidityForPool(PoolKey memory _poolKey) internal {
+        int24 tickLower = TickMath.minUsableTick(_poolKey.tickSpacing);
+        int24 tickUpper = TickMath.maxUsableTick(_poolKey.tickSpacing);
         
         uint128 liquidityAmount = 1000e18;
         
@@ -229,14 +231,14 @@ contract ConfluxHookTest is Test, Deployers {
             liquidityAmount
         );
         
-        deal(Currency.unwrap(poolKey.currency0), address(this), amount0Expected * 2);
-        deal(Currency.unwrap(poolKey.currency1), address(this), amount1Expected * 2);
+        deal(Currency.unwrap(_poolKey.currency0), address(this), amount0Expected * 2);
+        deal(Currency.unwrap(_poolKey.currency1), address(this), amount1Expected * 2);
         
-        IERC20(Currency.unwrap(poolKey.currency0)).approve(address(positionManager), amount0Expected * 2);
-        IERC20(Currency.unwrap(poolKey.currency1)).approve(address(positionManager), amount1Expected * 2);
+        IERC20(Currency.unwrap(_poolKey.currency0)).approve(address(positionManager), amount0Expected * 2);
+        IERC20(Currency.unwrap(_poolKey.currency1)).approve(address(positionManager), amount1Expected * 2);
         
         positionManager.mint(
-            poolKey,
+            _poolKey,
             tickLower,
             tickUpper,
             liquidityAmount,
@@ -643,7 +645,8 @@ contract ConfluxHookTest is Test, Deployers {
         TestableTopOracle disabledTopOracle = new TestableTopOracle(
             address(functionsRouter),
             testDonId,
-            address(registry)
+            address(registry),
+            address(0) // Will be set later
         );
         
         // Deploy the disabled hook to an address with the correct flags
@@ -663,6 +666,9 @@ contract ConfluxHookTest is Test, Deployers {
         );
         deployCodeTo("ConfluxHook.sol:ConfluxHook", disabledConstructorArgs, disabledFlags);
         ConfluxHook disabledHook = ConfluxHook(disabledFlags);
+        
+        // Set hook authority for disabled oracle
+        disabledTopOracle.setHookAuthority(address(disabledHook));
         
         // Set up the pool with disabled hook
         PoolKey memory disabledPoolKey = PoolKey({
