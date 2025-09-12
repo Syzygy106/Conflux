@@ -49,6 +49,7 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable {
 
   // Rebate management per pools + rebate time telemetry
   mapping(PoolId => bool) public isRebateEnabled;
+  mapping(PoolId => bool) public isRebateToken0; // true if rebate token is currency0, false if currency1
   mapping(uint16 => uint256) public lastTimeRebateCommitted;
 
   // Control "exhaustion" within a single top epoch
@@ -87,8 +88,17 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable {
   }
 
   function _afterInitialize(address sender, PoolKey calldata key, uint160, int24) internal override returns (bytes4) {
+    // Ensure pool contains the rebate token
+    address token0 = Currency.unwrap(key.currency0);
+    address token1 = Currency.unwrap(key.currency1);
+    require(
+        token0 == rebateToken || token1 == rebateToken,
+        "ConfluxHook: Pool must contain rebate token"
+    );
+    
     _setPoolOwner(key, sender);
     isRebateEnabled[key.toId()] = true;
+    isRebateToken0[key.toId()] = (token0 == rebateToken);
     return BaseHook.afterInitialize.selector;
   }
 
@@ -127,13 +137,8 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable {
       return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
-    // Pool must contain rebateToken — otherwise no-op
-    address token0 = Currency.unwrap(key.currency0);
-    address token1 = Currency.unwrap(key.currency1);
-    if (!(token0 == rebateToken || token1 == rebateToken)) {
-      return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
-    }
-    bool isRebateToken0 = (token0 == rebateToken);
+    // Get the pre-computed rebate token position for this pool
+    bool rebateTokenIs0 = isRebateToken0[key.toId()];
 
     // Is rebate enabled on the pool?
     if (!isRebateEnabled[key.toId()]) {
@@ -194,7 +199,7 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable {
     }
 
     // Calculate BeforeSwapDelta — always rebate in rebateToken
-    bool rebateOnSpecified = (params.zeroForOne && isRebateToken0) || (!params.zeroForOne && !isRebateToken0);
+    bool rebateOnSpecified = (params.zeroForOne && rebateTokenIs0) || (!params.zeroForOne && !rebateTokenIs0);
     int128 specDelta = rebateOnSpecified ? -daemonRebateAmount : int128(0);
     int128 unspecDelta = rebateOnSpecified ? int128(0) : -daemonRebateAmount;
 
@@ -203,33 +208,33 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable {
     return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(specDelta, unspecDelta), 0);
   }
 
-  function _afterSwap(
-    address,
-    PoolKey calldata,
-    SwapParams calldata,
-    BalanceDelta,
-    bytes calldata
-  ) internal override returns (bytes4, int128) {
-    return (BaseHook.afterSwap.selector, 0);
-  }
+//   function _afterSwap(
+//     address,
+//     PoolKey calldata,
+//     SwapParams calldata,
+//     BalanceDelta,
+//     bytes calldata
+//   ) internal override returns (bytes4, int128) {
+//     return (BaseHook.afterSwap.selector, 0);
+//   }
 
-  function _beforeAddLiquidity(
-    address,
-    PoolKey calldata key,
-    ModifyLiquidityParams calldata,
-    bytes calldata
-  ) internal override returns (bytes4) {
-    return BaseHook.beforeAddLiquidity.selector;
-  }
+//   function _beforeAddLiquidity(
+//     address,
+//     PoolKey calldata key,
+//     ModifyLiquidityParams calldata,
+//     bytes calldata
+//   ) internal override returns (bytes4) {
+//     return BaseHook.beforeAddLiquidity.selector;
+//   }
 
-  function _beforeRemoveLiquidity(
-    address,
-    PoolKey calldata key,
-    ModifyLiquidityParams calldata,
-    bytes calldata
-  ) internal override returns (bytes4) {
-    return BaseHook.beforeRemoveLiquidity.selector;
-  }
+//   function _beforeRemoveLiquidity(
+//     address,
+//     PoolKey calldata key,
+//     ModifyLiquidityParams calldata,
+//     bytes calldata
+//   ) internal override returns (bytes4) {
+//     return BaseHook.beforeRemoveLiquidity.selector;
+//   }
 
   // ---- Admin per-pool
   function toggleRebate(PoolKey calldata key) external onlyPoolOwner(key) {
