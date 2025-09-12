@@ -160,22 +160,26 @@ contract DaemonRegistry {
     }
   }
 
-  /// Packed pairs: [id(1) | address(20)] * N
+  /// Packed pairs: [id(2) | address(20)] * N
+  /// - id is uint16, big-endian (high byte first)
   function packedPairs() external view returns (bytes memory out) {
     uint256 total = _daemonAddresses.length;
-    out = new bytes(total * 21);
+    out = new bytes(total * 22);
     for (uint256 index = 0; index < total; index++) {
-      uint8 daemonId = uint8(addressToId[_daemonAddresses[index]]);
-      uint256 base = 32 + index * 21;
+      uint16 daemonId = addressToId[_daemonAddresses[index]];
+      uint256 base = 32 + index * 22;
+      // write id (2 bytes, big-endian)
       assembly {
         let p := add(out, base)
-        mstore8(p, daemonId)
+        mstore8(p, byte(1, daemonId))         // high byte
+        mstore8(add(p, 1), byte(0, daemonId)) // low byte
       }
+      // write address (20 bytes)
       bytes20 daemonBytes = bytes20(_daemonAddresses[index]);
       for (uint256 j = 0; j < 20; j++) {
         bytes1 b = daemonBytes[j];
         assembly {
-          mstore8(add(add(out, base), add(1, j)), byte(0, b))
+          mstore8(add(add(out, base), add(2, j)), byte(0, b))
         }
       }
     }
