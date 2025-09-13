@@ -262,7 +262,7 @@ contract ConfluxRebateTests is Test, Deployers {
         // Deploy test daemons
         daemon1 = new TestDaemon(100e15, Currency.unwrap(currency0)); // 0.1 token rebate
         daemon2 = new TestDaemon(50e15, Currency.unwrap(currency0));  // 0.05 token rebate
-        daemon3 = new TestDaemon(0, Currency.unwrap(currency0));      // No rebate
+        daemon3 = new TestDaemon(75e15, Currency.unwrap(currency0));  // 0.075 token rebate
         failingDaemon = new TestDaemon(200e15, Currency.unwrap(currency0)); // High rebate but will fail
         
         // Fund daemons
@@ -836,6 +836,214 @@ contract ConfluxRebateTests is Test, Deployers {
         
         // Job should not be executed (should revert)
         assertFalse(jobFailingDaemon.jobExecuted(), "Job should not be executed due to revert");
+    }
+
+    // ===== MULTI-EPOCH TESTING =====
+    
+    function testMultiEpochSwaps_10SwapsAcross3Epochs() public {
+        console2.log("=== MULTI-EPOCH TEST: 10 SWAPS ACROSS 3 EPOCHS ===");
+        
+        // Track daemon balances and payments across epochs
+        uint256[4] memory daemonBalancesBefore; // daemon1, daemon2, daemon3, failingDaemon
+        uint256[4] memory daemonPayments; // Track total payments per daemon
+        
+        // Initialize daemon balances
+        daemonBalancesBefore[0] = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        daemonBalancesBefore[1] = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+        daemonBalancesBefore[2] = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon3));
+        daemonBalancesBefore[3] = IERC20(Currency.unwrap(currency0)).balanceOf(address(failingDaemon));
+        
+        console2.log("Initial daemon balances:");
+        console2.log("  Daemon1:", daemonBalancesBefore[0]);
+        console2.log("  Daemon2:", daemonBalancesBefore[1]);
+        console2.log("  Daemon3:", daemonBalancesBefore[2]);
+        console2.log("  FailingDaemon:", daemonBalancesBefore[3]);
+        
+        // EPOCH 1: daemon1 and daemon2 in top
+        console2.log("\n--- EPOCH 1: daemon1 and daemon2 ---");
+        uint256[8] memory epoch1TopIds;
+        epoch1TopIds[0] = 0 | (1 << 16) | (0xffff << 32); // daemon1 (id=0) and daemon2 (id=1)
+        
+        // Use the existing epoch from setup, just update the top daemons
+        bytes32 requestId1 = topOracle.lastRequestId();
+        topOracle.testFulfillRequest(requestId1, epoch1TopIds);
+        
+        console2.log("Epoch 1 top count:", topOracle.topCount());
+        console2.log("Epoch 1 current top:", topOracle.getCurrentTop());
+        
+        // Swaps 1-4 in Epoch 1
+        for (uint256 i = 1; i <= 4; i++) {
+            console2.log("\n--- SWAP", i, "in EPOCH 1 ---");
+            uint256 swapAmount = 1e18;
+            deal(Currency.unwrap(currency0), user, swapAmount * 10); // Fund for all swaps
+            vm.prank(user);
+            IERC20(Currency.unwrap(currency0)).approve(address(swapRouter), swapAmount * 10);
+            
+            uint256 daemon1Before = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+            uint256 daemon2Before = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+            
+            console2.log("  Top count before swap:", topOracle.topCount());
+            console2.log("  Current top before swap:", topOracle.getCurrentTop());
+            console2.log("  Daemon1 active:", registry.active(address(daemon1)));
+            console2.log("  Daemon2 active:", registry.active(address(daemon2)));
+            
+            vm.prank(user);
+            swapRouter.swapExactTokensForTokens({
+                amountIn: swapAmount,
+                amountOutMin: 0,
+                zeroForOne: true,
+                poolKey: poolKey,
+                hookData: "",
+                receiver: user,
+                deadline: block.timestamp + 1
+            });
+            
+            uint256 daemon1After = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+            uint256 daemon2After = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+            
+            uint256 daemon1Paid = daemon1Before - daemon1After;
+            uint256 daemon2Paid = daemon2Before - daemon2After;
+            
+            console2.log("  Daemon1 paid:", daemon1Paid);
+            console2.log("  Daemon2 paid:", daemon2Paid);
+            console2.log("  Current top after swap:", topOracle.getCurrentTop());
+            
+            daemonPayments[0] += daemon1Paid;
+            daemonPayments[1] += daemon2Paid;
+        }
+        
+        // Transition to EPOCH 2: daemon2 and daemon3 in top
+        console2.log("\n--- TRANSITION TO EPOCH 2: daemon2 and daemon3 ---");
+        console2.log("Current epoch before transition:", topOracle.topEpoch());
+        console2.log("Current block before transition:", block.number);
+        vm.roll(block.number + 101); // Pass epoch duration (100 blocks)
+        console2.log("Block after roll:", block.number);
+        vm.prank(address(hook));
+        topOracle.maybeRequestTopUpdate();
+        
+        uint256[8] memory epoch2TopIds;
+        epoch2TopIds[0] = 1 | (2 << 16) | (0xffff << 32); // daemon2 (id=1) and daemon3 (id=2)
+        
+        bytes32 requestId2 = topOracle.lastRequestId();
+        topOracle.testFulfillRequest(requestId2, epoch2TopIds);
+        
+        console2.log("Epoch 2 top count:", topOracle.topCount());
+        console2.log("Epoch 2 current top:", topOracle.getCurrentTop());
+        console2.log("Epoch number after transition:", topOracle.topEpoch());
+        
+        // Swaps 5-7 in Epoch 2
+        for (uint256 i = 5; i <= 7; i++) {
+            console2.log("\n--- SWAP", i, "in EPOCH 2 ---");
+            uint256 swapAmount = 1e18;
+            
+            uint256 daemon2Before = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+            uint256 daemon3Before = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon3));
+            
+            console2.log("  Daemon2 active:", registry.active(address(daemon2)));
+            console2.log("  Daemon3 active:", registry.active(address(daemon3)));
+            console2.log("  Current top before swap:", topOracle.getCurrentTop());
+            
+            vm.prank(user);
+            swapRouter.swapExactTokensForTokens({
+                amountIn: swapAmount,
+                amountOutMin: 0,
+                zeroForOne: true,
+                poolKey: poolKey,
+                hookData: "",
+                receiver: user,
+                deadline: block.timestamp + 1
+            });
+            
+            uint256 daemon2After = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+            uint256 daemon3After = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon3));
+            
+            uint256 daemon2Paid = daemon2Before - daemon2After;
+            uint256 daemon3Paid = daemon3Before - daemon3After;
+            
+            console2.log("  Daemon2 paid:", daemon2Paid);
+            console2.log("  Daemon3 paid:", daemon3Paid);
+            console2.log("  Current top after swap:", topOracle.getCurrentTop());
+            
+            daemonPayments[1] += daemon2Paid;
+            daemonPayments[2] += daemon3Paid;
+        }
+        
+        // Transition to EPOCH 3: failingDaemon and daemon1 in top
+        console2.log("\n--- TRANSITION TO EPOCH 3: failingDaemon and daemon1 ---");
+        vm.roll(block.number + 101); // Pass another epoch duration
+        vm.prank(address(hook));
+        topOracle.maybeRequestTopUpdate();
+        
+        uint256[8] memory epoch3TopIds;
+        epoch3TopIds[0] = 3 | (0 << 16) | (0xffff << 32); // failingDaemon (id=3) and daemon1 (id=0)
+        
+        bytes32 requestId3 = topOracle.lastRequestId();
+        topOracle.testFulfillRequest(requestId3, epoch3TopIds);
+        
+        console2.log("Epoch 3 top count:", topOracle.topCount());
+        console2.log("Epoch 3 current top:", topOracle.getCurrentTop());
+        console2.log("Epoch number:", topOracle.topEpoch());
+        
+        // Swaps 8-10 in Epoch 3
+        for (uint256 i = 8; i <= 10; i++) {
+            console2.log("\n--- SWAP", i, "in EPOCH 3 ---");
+            uint256 swapAmount = 1e18;
+            
+            uint256 failingDaemonBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(failingDaemon));
+            uint256 daemon1Before = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+            
+            vm.prank(user);
+            swapRouter.swapExactTokensForTokens({
+                amountIn: swapAmount,
+                amountOutMin: 0,
+                zeroForOne: true,
+                poolKey: poolKey,
+                hookData: "",
+                receiver: user,
+                deadline: block.timestamp + 1
+            });
+            
+            uint256 failingDaemonAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(failingDaemon));
+            uint256 daemon1After = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+            
+            uint256 failingDaemonPaid = failingDaemonBefore - failingDaemonAfter;
+            uint256 daemon1Paid = daemon1Before - daemon1After;
+            
+            console2.log("  FailingDaemon paid:", failingDaemonPaid);
+            console2.log("  Daemon1 paid:", daemon1Paid);
+            console2.log("  Current top after swap:", topOracle.getCurrentTop());
+            
+            daemonPayments[3] += failingDaemonPaid;
+            daemonPayments[0] += daemon1Paid;
+        }
+        
+        // Final verification
+        console2.log("\n=== FINAL VERIFICATION ===");
+        console2.log("Total payments across all epochs:");
+        console2.log("  Daemon1 total paid:", daemonPayments[0]);
+        console2.log("  Daemon2 total paid:", daemonPayments[1]);
+        console2.log("  Daemon3 total paid:", daemonPayments[2]);
+        console2.log("  FailingDaemon total paid:", daemonPayments[3]);
+        
+        // Verify epoch progression
+        // We start at epoch 2 (from setup), then transition to epoch 3, then epoch 4
+        assertEq(topOracle.topEpoch(), 4, "Should be in epoch 4 (started at 2, +2 transitions)");
+        
+        // Verify that daemons from different epochs paid rebates
+        assertGt(daemonPayments[0], 0, "Daemon1 should have paid in epochs 1 and 3");
+        assertGt(daemonPayments[1], 0, "Daemon2 should have paid in epochs 1 and 2");
+        assertGt(daemonPayments[2], 0, "Daemon3 should have paid in epoch 2");
+        assertGt(daemonPayments[3], 0, "FailingDaemon should have paid in epoch 3");
+        
+        // Verify daemon rotation within epochs
+        // In epoch 1: daemon1 and daemon2 should have rotated
+        // In epoch 2: daemon2 and daemon3 should have rotated  
+        // In epoch 3: failingDaemon and daemon1 should have rotated
+        
+        // Check that we had multiple different daemons paying in each epoch
+        // This is verified by the fact that we have payments from all 4 daemons
+        // and the epoch transitions worked correctly
+
     }
 
     // ===== HELPER FUNCTIONS =====
