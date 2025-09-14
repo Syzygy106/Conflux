@@ -393,6 +393,8 @@ contract ConfluxRebateTests is Test, Deployers {
             address(0)
         );
         
+        console2.log("Created disabled TopOracle with epoch duration:", disabledTopOracle.epochDurationBlocks());
+        
         // Deploy disabled hook
         address disabledFlags = address(
             uint160(
@@ -431,6 +433,7 @@ contract ConfluxRebateTests is Test, Deployers {
         
         // Verify epoch duration is 0
         assertEq(disabledTopOracle.epochDurationBlocks(), 0);
+        console2.log("Epoch duration confirmed as 0 (disabled)");
         
         // Perform swap - should not have rebate
         uint256 swapAmount = 1e18;
@@ -439,6 +442,7 @@ contract ConfluxRebateTests is Test, Deployers {
         IERC20(Currency.unwrap(currency0)).approve(address(swapRouter), swapAmount);
         
         uint256 daemon1BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        console2.log("Daemon1 balance before swap:", daemon1BalanceBefore);
         
         vm.prank(user);
         swapRouter.swapExactTokensForTokens({
@@ -452,9 +456,15 @@ contract ConfluxRebateTests is Test, Deployers {
         });
         
         uint256 daemon1BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        console2.log("Daemon1 balance after swap:", daemon1BalanceAfter);
+        console2.log("Daemon1 paid:", daemon1BalanceBefore - daemon1BalanceAfter);
+        console2.log("Daemon1 job executed:", daemon1.jobExecuted());
         
         // Daemon should not pay anything when epochs are disabled
         assertEq(daemon1BalanceBefore, daemon1BalanceAfter);
+        
+        // Job should not be executed when epochs are disabled
+        assertFalse(daemon1.jobExecuted(), "Job should not be executed when epochs are disabled");
     }
 
     // ===== CONDITION 2: NO TOP DAEMONS =====
@@ -464,23 +474,32 @@ contract ConfluxRebateTests is Test, Deployers {
         uint256[8] memory emptyTopIds;
         emptyTopIds[0] = 0xffff; // End marker immediately
         
+        console2.log("Setting up empty top daemon list...");
         topOracle.refreshTopNow();
         bytes32 requestId = topOracle.lastRequestId();
         topOracle.testFulfillRequest(requestId, emptyTopIds);
         
         // Verify no top daemons
         assertEq(topOracle.topCount(), 0);
+        console2.log("Top count confirmed as 0 (no top daemons)");
         
         // Perform swap - should not have rebate
         uint256 swapAmount = 1e18;
         uint256 daemon1BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        console2.log("Daemon1 balance before swap:", daemon1BalanceBefore);
         
         performSwap(swapAmount, true);
         
         uint256 daemon1BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        console2.log("Daemon1 balance after swap:", daemon1BalanceAfter);
+        console2.log("Daemon1 paid:", daemon1BalanceBefore - daemon1BalanceAfter);
+        console2.log("Daemon1 job executed:", daemon1.jobExecuted());
         
         // Daemon should not pay anything when no top daemons
         assertEq(daemon1BalanceBefore, daemon1BalanceAfter);
+        
+        // Job should not be executed when no top daemons
+        assertFalse(daemon1.jobExecuted(), "Job should not be executed when no top daemons");
     }
 
     // ===== CONDITION 3: ALL DAEMONS EXHAUSTED IN EPOCH =====
@@ -490,17 +509,25 @@ contract ConfluxRebateTests is Test, Deployers {
         uint256[8] memory topIds;
         topIds[0] = 0 | (1 << 16) | (0xffff << 32);
         
+        console2.log("Setting up top daemons: daemon1 and daemon2");
         topOracle.refreshTopNow();
         bytes32 requestId = topOracle.lastRequestId();
         topOracle.testFulfillRequest(requestId, topIds);
         
+        console2.log("Top count:", topOracle.topCount());
+        console2.log("Current top:", topOracle.getCurrentTop());
+        
         // First swap - daemon1 pays
+        console2.log("\n--- SWAP 1: daemon1 should pay ---");
         uint256 swapAmount = 1e18;
         deal(Currency.unwrap(currency0), user, swapAmount * 3);
         vm.prank(user);
         IERC20(Currency.unwrap(currency0)).approve(address(swapRouter), swapAmount * 3);
         
         uint256 daemon1BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        uint256 daemon2BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+        console2.log("Daemon1 balance before:", daemon1BalanceBefore);
+        console2.log("Daemon2 balance before:", daemon2BalanceBefore);
         
         vm.prank(user);
         swapRouter.swapExactTokensForTokens({
@@ -514,10 +541,18 @@ contract ConfluxRebateTests is Test, Deployers {
         });
         
         uint256 daemon1BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        uint256 daemon2BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+        console2.log("Daemon1 balance after:", daemon1BalanceAfter);
+        console2.log("Daemon2 balance after:", daemon2BalanceAfter);
+        console2.log("Daemon1 paid:", daemon1BalanceBefore - daemon1BalanceAfter);
+        console2.log("Daemon2 paid:", daemon2BalanceBefore - daemon2BalanceAfter);
+        
         assertGt(daemon1BalanceBefore - daemon1BalanceAfter, 0, "Daemon1 should pay first");
         
         // Second swap - daemon2 pays
-        uint256 daemon2BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+        console2.log("\n--- SWAP 2: daemon2 should pay ---");
+        uint256 daemon2BalanceBefore2 = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+        console2.log("Daemon2 balance before:", daemon2BalanceBefore2);
         
         vm.prank(user);
         swapRouter.swapExactTokensForTokens({
@@ -530,12 +565,18 @@ contract ConfluxRebateTests is Test, Deployers {
             deadline: block.timestamp + 1
         });
         
-        uint256 daemon2BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
-        assertGt(daemon2BalanceBefore - daemon2BalanceAfter, 0, "Daemon2 should pay second");
+        uint256 daemon2BalanceAfter2 = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+        console2.log("Daemon2 balance after:", daemon2BalanceAfter2);
+        console2.log("Daemon2 paid:", daemon2BalanceBefore2 - daemon2BalanceAfter2);
+        
+        assertGt(daemon2BalanceBefore2 - daemon2BalanceAfter2, 0, "Daemon2 should pay second");
         
         // Third swap - no rebate (all daemons exhausted)
+        console2.log("\n--- SWAP 3: no rebate (all daemons exhausted) ---");
         uint256 daemon1BalanceBefore3 = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
         uint256 daemon2BalanceBefore3 = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+        console2.log("Daemon1 balance before:", daemon1BalanceBefore3);
+        console2.log("Daemon2 balance before:", daemon2BalanceBefore3);
         
         vm.prank(user);
         swapRouter.swapExactTokensForTokens({
@@ -550,6 +591,10 @@ contract ConfluxRebateTests is Test, Deployers {
         
         uint256 daemon1BalanceAfter3 = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
         uint256 daemon2BalanceAfter3 = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon2));
+        console2.log("Daemon1 balance after:", daemon1BalanceAfter3);
+        console2.log("Daemon2 balance after:", daemon2BalanceAfter3);
+        console2.log("Daemon1 paid:", daemon1BalanceBefore3 - daemon1BalanceAfter3);
+        console2.log("Daemon2 paid:", daemon2BalanceBefore3 - daemon2BalanceAfter3);
         
         // No daemon should pay - all exhausted
         assertEq(daemon1BalanceBefore3, daemon1BalanceAfter3, "Daemon1 should not pay - exhausted");
@@ -560,22 +605,34 @@ contract ConfluxRebateTests is Test, Deployers {
     
     function testRebateCondition_BannedDaemon() public {
         // Ban daemon1
+        console2.log("Banning daemon1...");
         vm.prank(registryOwner);
         registry.banDaemon(address(daemon1));
         
         assertTrue(registry.banned(address(daemon1)));
         assertFalse(registry.active(address(daemon1)));
+        console2.log("Daemon1 is banned and inactive");
+        console2.log("Daemon1 banned status:", registry.banned(address(daemon1)));
+        console2.log("Daemon1 active status:", registry.active(address(daemon1)));
         
         // Perform swap - should skip banned daemon
+        console2.log("\nPerforming swap with banned daemon...");
         uint256 swapAmount = 1e18;
         uint256 daemon1BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        console2.log("Daemon1 balance before swap:", daemon1BalanceBefore);
         
         performSwap(swapAmount, true);
         
         uint256 daemon1BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        console2.log("Daemon1 balance after swap:", daemon1BalanceAfter);
+        console2.log("Daemon1 paid:", daemon1BalanceBefore - daemon1BalanceAfter);
+        console2.log("Daemon1 job executed:", daemon1.jobExecuted());
         
         // Banned daemon should not pay
         assertEq(daemon1BalanceBefore, daemon1BalanceAfter, "Banned daemon should not pay");
+        
+        // Job should not be executed for banned daemon
+        assertFalse(daemon1.jobExecuted(), "Job should not be executed for banned daemon");
     }
 
     // ===== CONDITION 5: POOL DOES NOT CONTAIN REBATE TOKEN =====
@@ -584,6 +641,7 @@ contract ConfluxRebateTests is Test, Deployers {
         // The hook now prevents pools from being initialized if they don't contain the rebate token
         // This is a much better approach than trying to handle it gracefully during swaps
         
+        console2.log("Creating pool key without rebate token...");
         // Create a pool key that doesn't contain the rebate token
         // Ensure currencies are in correct order (currency0 < currency1)
         address token0Addr = Currency.unwrap(currency1);
@@ -592,6 +650,10 @@ contract ConfluxRebateTests is Test, Deployers {
         if (token0Addr > token1Addr) {
             (token0Addr, token1Addr) = (token1Addr, token0Addr);
         }
+        
+        console2.log("Token0 address:", token0Addr);
+        console2.log("Token1 address:", token1Addr);
+        console2.log("Rebate token address:", Currency.unwrap(currency0));
         
         PoolKey memory testKey = PoolKey({
             currency0: Currency.wrap(token0Addr),  // Not the rebate token
@@ -602,6 +664,7 @@ contract ConfluxRebateTests is Test, Deployers {
         });
         
         // Pool initialization should fail because it doesn't contain the rebate token
+        console2.log("Attempting to initialize pool without rebate token...");
         vm.prank(poolOwner);
         vm.expectRevert(); // Any revert is fine, we just want to ensure it fails
         poolManager.initialize(testKey, Constants.SQRT_PRICE_1_1);
@@ -611,27 +674,39 @@ contract ConfluxRebateTests is Test, Deployers {
     
     function testRebateCondition_RebateDisabledOnPool() public {
         // Disable rebate on pool
+        console2.log("Disabling rebate on pool...");
         vm.prank(poolOwner);
         hook.toggleRebate(poolKey);
         
         assertFalse(hook.getRebateState(poolKey));
+        console2.log("Rebate disabled on pool");
+        console2.log("Pool rebate state:", hook.getRebateState(poolKey));
         
         // Perform swap - should not have rebate
+        console2.log("\nPerforming swap with rebate disabled...");
         uint256 swapAmount = 1e18;
         uint256 daemon1BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        console2.log("Daemon1 balance before swap:", daemon1BalanceBefore);
         
         performSwap(swapAmount, true);
         
         uint256 daemon1BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        console2.log("Daemon1 balance after swap:", daemon1BalanceAfter);
+        console2.log("Daemon1 paid:", daemon1BalanceBefore - daemon1BalanceAfter);
+        console2.log("Daemon1 job executed:", daemon1.jobExecuted());
         
         // Daemon should not pay when rebate is disabled on pool
         assertEq(daemon1BalanceBefore, daemon1BalanceAfter, "Daemon should not pay - rebate disabled");
+        
+        // Job should not be executed when rebate is disabled on pool
+        assertFalse(daemon1.jobExecuted(), "Job should not be executed when rebate is disabled on pool");
     }
 
     // ===== CONDITION 7: DAEMON REBATE AMOUNT CALL FAILS =====
     
     function testRebateCondition_DaemonRebateAmountFails() public {
         // Set daemon to revert on getRebateAmount call
+        console2.log("Setting failingDaemon to revert on getRebateAmount call...");
         failingDaemon.setShouldRevertOnRebate(true);
         
         // Update top to failing daemon
@@ -639,27 +714,41 @@ contract ConfluxRebateTests is Test, Deployers {
         topIds[0] = 3; // failingDaemon has id 3
         topIds[1] = 0xffff;
         
+        console2.log("Setting failingDaemon as top daemon...");
         topOracle.refreshTopNow();
         bytes32 requestId = topOracle.lastRequestId();
         topOracle.testFulfillRequest(requestId, topIds);
         
+        console2.log("Current top:", topOracle.getCurrentTop());
+        console2.log("FailingDaemon active before swap:", registry.active(address(failingDaemon)));
+        
         // Perform swap - should disable daemon and not pay
+        console2.log("\nPerforming swap with failing daemon...");
         uint256 swapAmount = 1e18;
         uint256 failingDaemonBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(failingDaemon));
+        console2.log("FailingDaemon balance before swap:", failingDaemonBalanceBefore);
         
         performSwap(swapAmount, true);
         
         uint256 failingDaemonBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(failingDaemon));
+        console2.log("FailingDaemon balance after swap:", failingDaemonBalanceAfter);
+        console2.log("FailingDaemon paid:", failingDaemonBalanceBefore - failingDaemonBalanceAfter);
+        console2.log("FailingDaemon active after swap:", registry.active(address(failingDaemon)));
+        console2.log("FailingDaemon job executed:", failingDaemon.jobExecuted());
         
         // Daemon should not pay and should be deactivated
         assertEq(failingDaemonBalanceBefore, failingDaemonBalanceAfter, "Daemon should not pay - call failed");
         assertFalse(registry.active(address(failingDaemon)), "Daemon should be deactivated");
+        
+        // Job should not be executed when rebate amount call fails
+        assertFalse(failingDaemon.jobExecuted(), "Job should not be executed when rebate amount call fails");
     }
 
     // ===== CONDITION 8: DAEMON RETURNS INVALID DATA =====
     
     function testRebateCondition_DaemonReturnsInvalidData() public {
         // Set daemon to return invalid data
+        console2.log("Setting failingDaemon to return invalid data...");
         failingDaemon.setShouldReturnInvalidData(true);
         
         // Update top to failing daemon
@@ -667,17 +756,26 @@ contract ConfluxRebateTests is Test, Deployers {
         topIds[0] = 3; // failingDaemon has id 3
         topIds[1] = 0xffff;
         
+        console2.log("Setting failingDaemon as top daemon...");
         topOracle.refreshTopNow();
         bytes32 requestId = topOracle.lastRequestId();
         topOracle.testFulfillRequest(requestId, topIds);
         
+        console2.log("Current top:", topOracle.getCurrentTop());
+        console2.log("FailingDaemon active before swap:", registry.active(address(failingDaemon)));
+        
         // Perform swap - should disable daemon and not pay
+        console2.log("\nPerforming swap with daemon returning invalid data...");
         uint256 swapAmount = 1e18;
         uint256 failingDaemonBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(failingDaemon));
+        console2.log("FailingDaemon balance before swap:", failingDaemonBalanceBefore);
         
         performSwap(swapAmount, true);
         
         uint256 failingDaemonBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(failingDaemon));
+        console2.log("FailingDaemon balance after swap:", failingDaemonBalanceAfter);
+        console2.log("FailingDaemon paid:", failingDaemonBalanceBefore - failingDaemonBalanceAfter);
+        console2.log("FailingDaemon active after swap:", registry.active(address(failingDaemon)));
         
         // Daemon should not pay and should be deactivated
         assertEq(failingDaemonBalanceBefore, failingDaemonBalanceAfter, "Daemon should not pay - invalid data");
@@ -687,53 +785,94 @@ contract ConfluxRebateTests is Test, Deployers {
     // ===== CONDITION 9: DAEMON RETURNS ZERO OR NEGATIVE REBATE =====
     
     function testRebateCondition_ZeroRebateAmount() public {
-        // Update top to daemon3 which has 0 rebate
+        // Create a new daemon with 0 rebate amount
+        TestDaemon zeroRebateDaemon = new TestDaemon(0, Currency.unwrap(currency0));
+        deal(Currency.unwrap(currency0), address(zeroRebateDaemon), 10e18);
+        zeroRebateDaemon.approveHook(address(hook), 10e18);
+        zeroRebateDaemon.approvePoolManager(address(poolManager), 10e18);
+        
+        // Register and activate daemon
+        vm.prank(registryOwner);
+        registry.add(address(zeroRebateDaemon), address(this));
+        registry.setActive(address(zeroRebateDaemon), true);
+        
+        // Update top to zero rebate daemon
         uint256[8] memory topIds;
-        topIds[0] = 2; // daemon3 has id 2
+        topIds[0] = 4; // zeroRebateDaemon has id 4
         topIds[1] = 0xffff;
         
+        console2.log("Setting zeroRebateDaemon (with 0 rebate) as top daemon...");
         topOracle.refreshTopNow();
         bytes32 requestId = topOracle.lastRequestId();
         topOracle.testFulfillRequest(requestId, topIds);
         
+        console2.log("Current top:", topOracle.getCurrentTop());
+        console2.log("ZeroRebateDaemon active:", registry.active(address(zeroRebateDaemon)));
+        console2.log("ZeroRebateDaemon rebate amount:", zeroRebateDaemon.getRebateAmount(block.number));
+        
         // Perform swap - should skip daemon with 0 rebate
+        console2.log("\nPerforming swap with daemon having 0 rebate...");
         uint256 swapAmount = 1e18;
-        uint256 daemon3BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon3));
+        uint256 zeroRebateDaemonBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(zeroRebateDaemon));
+        console2.log("ZeroRebateDaemon balance before swap:", zeroRebateDaemonBalanceBefore);
         
         performSwap(swapAmount, true);
         
-        uint256 daemon3BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon3));
+        uint256 zeroRebateDaemonBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(zeroRebateDaemon));
+        console2.log("ZeroRebateDaemon balance after swap:", zeroRebateDaemonBalanceAfter);
+        console2.log("ZeroRebateDaemon paid:", zeroRebateDaemonBalanceBefore - zeroRebateDaemonBalanceAfter);
+        console2.log("ZeroRebateDaemon job executed:", zeroRebateDaemon.jobExecuted());
         
         // Daemon with 0 rebate should not pay
-        assertEq(daemon3BalanceBefore, daemon3BalanceAfter, "Daemon with 0 rebate should not pay");
+        assertEq(zeroRebateDaemonBalanceBefore, zeroRebateDaemonBalanceAfter, "Daemon with 0 rebate should not pay");
+        
+        // Job should not be executed if daemon has 0 rebate
+        assertFalse(zeroRebateDaemon.jobExecuted(), "Job should not be executed for daemon with 0 rebate");
     }
 
     // ===== CONDITION 10: TRANSFER FAILS =====
     
     function testRebateCondition_TransferFails() public {
         // Set daemon rebate amount to more than it has approved
+        console2.log("Setting failingDaemon rebate amount to more than approved...");
         failingDaemon.setRebateAmount(20e18); // More than funded amount
+        
+        console2.log("FailingDaemon rebate amount:", failingDaemon.getRebateAmount(block.number));
+        console2.log("FailingDaemon balance:", IERC20(Currency.unwrap(currency0)).balanceOf(address(failingDaemon)));
         
         // Update top to failing daemon
         uint256[8] memory topIds;
         topIds[0] = 3; // failingDaemon has id 3
         topIds[1] = 0xffff;
         
+        console2.log("Setting failingDaemon as top daemon...");
         topOracle.refreshTopNow();
         bytes32 requestId = topOracle.lastRequestId();
         topOracle.testFulfillRequest(requestId, topIds);
         
+        console2.log("Current top:", topOracle.getCurrentTop());
+        console2.log("FailingDaemon active before swap:", registry.active(address(failingDaemon)));
+        
         // Perform swap - should disable daemon and not pay
+        console2.log("\nPerforming swap with daemon having insufficient balance...");
         uint256 swapAmount = 1e18;
         uint256 failingDaemonBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(failingDaemon));
+        console2.log("FailingDaemon balance before swap:", failingDaemonBalanceBefore);
         
         performSwap(swapAmount, true);
         
         uint256 failingDaemonBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(failingDaemon));
+        console2.log("FailingDaemon balance after swap:", failingDaemonBalanceAfter);
+        console2.log("FailingDaemon paid:", failingDaemonBalanceBefore - failingDaemonBalanceAfter);
+        console2.log("FailingDaemon active after swap:", registry.active(address(failingDaemon)));
+        console2.log("FailingDaemon job executed:", failingDaemon.jobExecuted());
         
         // Daemon should not pay and should be deactivated
         assertEq(failingDaemonBalanceBefore, failingDaemonBalanceAfter, "Daemon should not pay - transfer failed");
         assertFalse(registry.active(address(failingDaemon)), "Daemon should be deactivated");
+        
+        // Job should not be executed when transfer fails
+        assertFalse(failingDaemon.jobExecuted(), "Job should not be executed when transfer fails");
     }
 
     // ===== CONDITION 11: FEE-ON-TRANSFER TOKEN =====
@@ -755,12 +894,31 @@ contract ConfluxRebateTests is Test, Deployers {
     
     function testRebateCondition_SuccessfulRebate() public {
         // Perform swap - should have successful rebate
+        console2.log("Performing swap with successful rebate...");
         uint256 swapAmount = 1e18;
+        
+        // Track all balances
+        uint256 userBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(user);
+        uint256 poolBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(poolManager));
         uint256 daemon1BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        
+        console2.log("User balance before swap:", userBalanceBefore);
+        console2.log("Pool balance before swap:", poolBalanceBefore);
+        console2.log("Daemon1 balance before swap:", daemon1BalanceBefore);
+        console2.log("Daemon1 active:", registry.active(address(daemon1)));
+        console2.log("Current top:", topOracle.getCurrentTop());
         
         performSwap(swapAmount, true);
         
+        uint256 userBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(user);
+        uint256 poolBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(poolManager));
         uint256 daemon1BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        
+        console2.log("User balance after swap:", userBalanceAfter);
+        console2.log("Pool balance after swap:", poolBalanceAfter);
+        console2.log("Daemon1 balance after swap:", daemon1BalanceAfter);
+        console2.log("Daemon1 paid:", daemon1BalanceBefore - daemon1BalanceAfter);
+        console2.log("Daemon1 job executed:", daemon1.jobExecuted());
         
         // Daemon should pay rebate
         assertGt(daemon1BalanceBefore - daemon1BalanceAfter, 0, "Daemon should pay rebate");
@@ -773,12 +931,28 @@ contract ConfluxRebateTests is Test, Deployers {
     
     function testRebateCondition_RebateDirection_ZeroForOne() public {
         // Test rebate when swapping token0 -> token1 (rebateToken is token0)
+        console2.log("Testing rebate direction: Token0 -> Token1 (rebateToken is Token0)");
         uint256 swapAmount = 1e18;
+        
+        // Track all balances
+        uint256 userBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(user);
+        uint256 poolBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(poolManager));
         uint256 daemon1BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        
+        console2.log("User Token0 balance before swap:", userBalanceBefore);
+        console2.log("Pool Token0 balance before swap:", poolBalanceBefore);
+        console2.log("Daemon1 Token0 balance before swap:", daemon1BalanceBefore);
         
         performSwap(swapAmount, true); // zeroForOne = true
         
+        uint256 userBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(user);
+        uint256 poolBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(poolManager));
         uint256 daemon1BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        
+        console2.log("User Token0 balance after swap:", userBalanceAfter);
+        console2.log("Pool Token0 balance after swap:", poolBalanceAfter);
+        console2.log("Daemon1 Token0 balance after swap:", daemon1BalanceAfter);
+        console2.log("Daemon1 paid in Token0:", daemon1BalanceBefore - daemon1BalanceAfter);
         
         // Daemon should pay rebate in token0
         assertGt(daemon1BalanceBefore - daemon1BalanceAfter, 0, "Daemon should pay rebate in token0");
@@ -786,12 +960,28 @@ contract ConfluxRebateTests is Test, Deployers {
     
     function testRebateCondition_RebateDirection_OneForZero() public {
         // Test rebate when swapping token1 -> token0 (rebateToken is token0)
+        console2.log("Testing rebate direction: Token1 -> Token0 (rebateToken is Token0)");
         uint256 swapAmount = 1e18;
+        
+        // Track all balances
+        uint256 userBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(user);
+        uint256 poolBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(poolManager));
         uint256 daemon1BalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        
+        console2.log("User Token0 balance before swap:", userBalanceBefore);
+        console2.log("Pool Token0 balance before swap:", poolBalanceBefore);
+        console2.log("Daemon1 Token0 balance before swap:", daemon1BalanceBefore);
         
         performSwap(swapAmount, false); // zeroForOne = false
         
+        uint256 userBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(user);
+        uint256 poolBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(poolManager));
         uint256 daemon1BalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemon1));
+        
+        console2.log("User Token0 balance after swap:", userBalanceAfter);
+        console2.log("Pool Token0 balance after swap:", poolBalanceAfter);
+        console2.log("Daemon1 Token0 balance after swap:", daemon1BalanceAfter);
+        console2.log("Daemon1 paid in Token0:", daemon1BalanceBefore - daemon1BalanceAfter);
         
         // Daemon should pay rebate in token0
         assertGt(daemon1BalanceBefore - daemon1BalanceAfter, 0, "Daemon should pay rebate in token0");
@@ -812,6 +1002,7 @@ contract ConfluxRebateTests is Test, Deployers {
         registry.setActive(address(jobFailingDaemon), true);
         
         // Set daemon to fail only on job execution (not on getRebateAmount)
+        console2.log("Setting jobFailingDaemon to revert on job execution...");
         jobFailingDaemon.setShouldRevertOnJob(true);
         
         // Update top to job failing daemon
@@ -819,17 +1010,26 @@ contract ConfluxRebateTests is Test, Deployers {
         topIds[0] = 4; // jobFailingDaemon has id 4
         topIds[1] = 0xffff;
         
+        console2.log("Setting jobFailingDaemon as top daemon...");
         topOracle.refreshTopNow();
         bytes32 requestId = topOracle.lastRequestId();
         topOracle.testFulfillRequest(requestId, topIds);
         
+        console2.log("Current top:", topOracle.getCurrentTop());
+        console2.log("JobFailingDaemon active before swap:", registry.active(address(jobFailingDaemon)));
+        
         // Perform swap - daemon should still pay rebate but job should fail
+        console2.log("\nPerforming swap with job failing daemon...");
         uint256 swapAmount = 1e18;
         uint256 jobFailingDaemonBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(jobFailingDaemon));
+        console2.log("JobFailingDaemon balance before swap:", jobFailingDaemonBalanceBefore);
         
         performSwap(swapAmount, true);
         
         uint256 jobFailingDaemonBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(jobFailingDaemon));
+        console2.log("JobFailingDaemon balance after swap:", jobFailingDaemonBalanceAfter);
+        console2.log("JobFailingDaemon paid:", jobFailingDaemonBalanceBefore - jobFailingDaemonBalanceAfter);
+        console2.log("JobFailingDaemon job executed:", jobFailingDaemon.jobExecuted());
         
         // Daemon should still pay rebate even if job fails
         assertGt(jobFailingDaemonBalanceBefore - jobFailingDaemonBalanceAfter, 0, "Daemon should pay rebate even if job fails");
