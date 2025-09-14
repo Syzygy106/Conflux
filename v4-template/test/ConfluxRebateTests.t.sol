@@ -668,6 +668,8 @@ contract ConfluxRebateTests is Test, Deployers {
         vm.prank(poolOwner);
         vm.expectRevert(); // Any revert is fine, we just want to ensure it fails
         poolManager.initialize(testKey, Constants.SQRT_PRICE_1_1);
+        
+        console2.log("Pool initialization failed as expected - pool does not contain rebate token");
     }
 
     // ===== CONDITION 6: REBATE DISABLED ON POOL =====
