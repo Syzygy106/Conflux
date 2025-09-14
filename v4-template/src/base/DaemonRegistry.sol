@@ -48,7 +48,7 @@ contract DaemonRegistry {
   function _add(address daemon, address owner) internal {
     if (daemon == address(0)) revert ZeroAddress();
     if (exists[daemon]) revert DuplicateDaemon();
-    if (_daemonAddresses.length >= 3200) revert CapacityExceeded();
+    if (_daemonAddresses.length >= 1200) revert CapacityExceeded();
     uint16 daemonId = uint16(_daemonAddresses.length);
     exists[daemon] = true;
     addressToId[daemon] = daemonId;
