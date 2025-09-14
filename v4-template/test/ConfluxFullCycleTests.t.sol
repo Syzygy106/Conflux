@@ -1150,16 +1150,22 @@ contract ConfluxFullCycleTests is Test, Deployers {
         console2.log("  Daemon4 paid:", daemonBalancesBefore[4] - daemonBalancesAfter[4]);
         console2.log("  Daemon5 paid:", daemonBalancesBefore[5] - daemonBalancesAfter[5]);
         
+        // Simulate daemon 4 being used up (0 rebate for EPOCH 2)
+        console2.log("\n--- SIMULATING DAEMON 4 USAGE (0 REBATE FOR EPOCH 2) ---");
+        daemons[4].setRebateAmount(0); // Set daemon 4 rebate to 0
+        console2.log("Daemon 4 rebate amount set to 0 for EPOCH 2");
+        
         // Wait for Chainlink Functions computation to complete
         console2.log("\n--- WAITING FOR CHAINLINK COMPUTATION TO COMPLETE ---");
         vm.roll(121);
         console2.log("Moved to block 121 (Chainlink computation complete):", block.number);
         
-        // Fulfill EPOCH 2 request (daemons 5-14, since first 5 were used)
+        // Fulfill EPOCH 2 request (daemons 4-14, since first 4 were used + daemon 4 used during computation)
         console2.log("\n--- FULFILLING EPOCH 2 CHAINLINK REQUEST ---");
+        console2.log("Note: Daemon 4 was used during computation, so it will have 0 rebate in EPOCH 2");
         uint256[8] memory epoch2TopIds;
-        // Set daemons 5-14 as top (ids 5-14)
-        epoch2TopIds[0] = 5 | (6 << 16) | (7 << 32) | (8 << 48) | (9 << 64) | (10 << 80) | (11 << 96) | (12 << 112) | (13 << 128) | (14 << 144) | (0xffff << 160);
+        // Set daemons 4-14 as top (ids 4-14) - daemon 4 will have 0 rebate
+        epoch2TopIds[0] = 4 | (5 << 16) | (6 << 32) | (7 << 48) | (8 << 64) | (9 << 80) | (10 << 96) | (11 << 112) | (12 << 128) | (13 << 144) | (14 << 160) | (0xffff << 176);
         
         bytes32 requestId2 = topOracle.lastRequestId();
         topOracle.testFulfillRequest(requestId2, epoch2TopIds);
@@ -1184,16 +1190,16 @@ contract ConfluxFullCycleTests is Test, Deployers {
         vm.prank(user1);
         IERC20(Currency.unwrap(currency0)).approve(address(swapRouter), swapAmount * 2);
         
-        // Track daemon balances before swap (daemons 5-14)
-        for (uint256 i = 5; i < 15; i++) {
+        // Track daemon balances before swap (daemons 4-14)
+        for (uint256 i = 4; i < 15; i++) {
             daemonBalancesBefore[i] = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemons[i]));
         }
         
         console2.log("  Top count before swap:", topOracle.topCount());
         console2.log("  Current epoch before swap:", topOracle.topEpoch());
-        console2.log("  Daemon5 balance before:", daemonBalancesBefore[5]);
-        console2.log("  Daemon6 balance before:", daemonBalancesBefore[6]);
-        console2.log("  Daemon7 balance before:", daemonBalancesBefore[7]);
+        console2.log("  Daemon4 balance before (should have 0 rebate):", daemonBalancesBefore[4]);
+        console2.log("  Daemon5 balance before (should have full rebate):", daemonBalancesBefore[5]);
+        console2.log("  Daemon6 balance before (should have full rebate):", daemonBalancesBefore[6]);
         
         vm.prank(user1);
         swapRouter.swapExactTokensForTokens({
@@ -1207,13 +1213,52 @@ contract ConfluxFullCycleTests is Test, Deployers {
         });
         
         // Track daemon balances after swap
-        for (uint256 i = 5; i < 15; i++) {
+        for (uint256 i = 4; i < 15; i++) {
             daemonBalancesAfter[i] = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemons[i]));
         }
         
-        console2.log("  Daemon5 paid:", daemonBalancesBefore[5] - daemonBalancesAfter[5]);
-        console2.log("  Daemon6 paid:", daemonBalancesBefore[6] - daemonBalancesAfter[6]);
-        console2.log("  Daemon7 paid:", daemonBalancesBefore[7] - daemonBalancesAfter[7]);
+        console2.log("  Daemon4 paid (should be 0):", daemonBalancesBefore[4] - daemonBalancesAfter[4]);
+        console2.log("  Daemon5 paid (should be 0):", daemonBalancesBefore[5] - daemonBalancesAfter[5]);
+        console2.log("  Daemon6 paid (should be 0):", daemonBalancesBefore[6] - daemonBalancesAfter[6]);
+        
+        // Second EPOCH 2 swap to show daemon 6 with full rebate
+        console2.log("\n--- SECOND EPOCH 2 SWAP: token1 -> token0 (user2) - DAEMON 6 WITH FULL REBATE ---");
+        console2.log("Block before swap:", block.number);
+        
+        deal(Currency.unwrap(currency1), user2, swapAmount * 2);
+        vm.prank(user2);
+        IERC20(Currency.unwrap(currency1)).approve(address(swapRouter), swapAmount * 2);
+        
+        // Track daemon balances before swap (daemons 4-14)
+        for (uint256 i = 4; i < 15; i++) {
+            daemonBalancesBefore[i] = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemons[i]));
+        }
+        
+        console2.log("  Top count before swap:", topOracle.topCount());
+        console2.log("  Current epoch before swap:", topOracle.topEpoch());
+        console2.log("  Daemon4 balance before (should have 0 rebate):", daemonBalancesBefore[4]);
+        console2.log("  Daemon5 balance before (should have full rebate):", daemonBalancesBefore[5]);
+        console2.log("  Daemon6 balance before (should have full rebate):", daemonBalancesBefore[6]);
+        
+        vm.prank(user2);
+        swapRouter.swapExactTokensForTokens({
+            amountIn: swapAmount,
+            amountOutMin: 0,
+            zeroForOne: false, // token1 -> token0
+            poolKey: poolKey,
+            hookData: "",
+            receiver: user2,
+            deadline: block.timestamp + 1
+        });
+        
+        // Track daemon balances after swap
+        for (uint256 i = 4; i < 15; i++) {
+            daemonBalancesAfter[i] = IERC20(Currency.unwrap(currency0)).balanceOf(address(daemons[i]));
+        }
+        
+        console2.log("  Daemon4 paid (should be 0):", daemonBalancesBefore[4] - daemonBalancesAfter[4]);
+        console2.log("  Daemon5 paid (should be full rebate):", daemonBalancesBefore[5] - daemonBalancesAfter[5]);
+        console2.log("  Daemon6 paid (should be 0):", daemonBalancesBefore[6] - daemonBalancesAfter[6]);
         
         // Final verification
         console2.log("\n=== FINAL VERIFICATION ===");
