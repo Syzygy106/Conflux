@@ -6,6 +6,7 @@ import {FunctionsClient} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/Fu
 // Minimal interface for accessing daemon addresses by id
 interface IDaemonRegistryView {
   function getById(uint16 daemonId) external view returns (address);
+  function length() external view returns (uint256);
 }
 
 /**
@@ -165,6 +166,12 @@ contract TopOracle is FunctionsClient {
 
     bool expired = block.number >= lastEpochStartBlock + epochDurationBlocks;
     if (expired && !hasPendingTopRequest) {
+      // Check if there are any daemons in the registry to avoid wasting LINK tokens
+      if (registry == address(0)) return;
+      
+      uint256 daemonCount = IDaemonRegistryView(registry).length();
+      if (daemonCount == 0) return; // Skip request if no daemons registered
+      
       RequestTemplate memory t = _tpl;
       require(t.encodedRequest.length != 0, "tpl not set");
 
