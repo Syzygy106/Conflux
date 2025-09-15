@@ -18,6 +18,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {FunctionsClient} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol";
+import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
 import {Deployers} from "./utils/Deployers.sol";
 import {EasyPosm} from "./utils/libraries/EasyPosm.sol";
 
@@ -399,16 +400,19 @@ contract ConfluxRebateTests is Test, Deployers {
     
     function setupTopOracleEpoch() internal {
         // Setup initial template and epoch
-        bytes memory encodedRequest = abi.encode("test-request");
+        string memory source = "test-request";
+        FunctionsRequest.Location secretsLocation = FunctionsRequest.Location.Inline;
+        bytes memory encryptedSecretsReference = "";
+        string[] memory args = new string[](0);
+        bytes[] memory bytesArgs = new bytes[](0);
         uint64 subscriptionId = 1;
         uint32 callbackGasLimit = 300000;
         
-        topOracle.startRebateEpochs(
-            100, // epochDurationBlocks
-            encodedRequest,
-            subscriptionId,
-            callbackGasLimit
-        );
+        // First set the template
+        topOracle.setRequestTemplate(source, secretsLocation, encryptedSecretsReference, args, bytesArgs, subscriptionId, callbackGasLimit);
+        
+        // Then start rebate epochs
+        topOracle.startRebateEpochs(100); // epochDurationBlocks
         
         // Simulate Chainlink response with daemon1 as top
         uint256[8] memory topIds;

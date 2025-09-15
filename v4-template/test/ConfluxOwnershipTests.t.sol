@@ -18,6 +18,7 @@ import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol";
 import {IPositionManager} from "@uniswap/v4-periphery/src/interfaces/IPositionManager.sol";
 import {FunctionsClient} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol";
+import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
 import {Deployers} from "./utils/Deployers.sol";
 import {EasyPosm} from "./utils/libraries/EasyPosm.sol";
 
@@ -259,16 +260,19 @@ contract ConfluxOwnershipTests is Test, Deployers {
     
     function setupTopOracleEpoch() internal {
         // Setup initial template and epoch
-        bytes memory encodedRequest = abi.encode("test-request");
+        string memory source = "test-request";
+        FunctionsRequest.Location secretsLocation = FunctionsRequest.Location.Inline;
+        bytes memory encryptedSecretsReference = "";
+        string[] memory args = new string[](0);
+        bytes[] memory bytesArgs = new bytes[](0);
         uint64 subscriptionId = 1;
         uint32 callbackGasLimit = 300000;
         
-        topOracle.startRebateEpochs(
-            100, // epochDurationBlocks
-            encodedRequest,
-            subscriptionId,
-            callbackGasLimit
-        );
+        // First set the template
+        topOracle.setRequestTemplate(source, secretsLocation, encryptedSecretsReference, args, bytesArgs, subscriptionId, callbackGasLimit);
+        
+        // Then start rebate epochs
+        topOracle.startRebateEpochs(100); // epochDurationBlocks
         
         // Simulate Chainlink response with daemon1 as top
         uint256[8] memory topIds;
@@ -444,35 +448,39 @@ contract ConfluxOwnershipTests is Test, Deployers {
     }
 
     function testTopOracle_SetRequestTemplate_OnlyOwner() public {
-        bytes memory encodedRequest = abi.encode("test-request");
+        string memory source = "test-request";
+        FunctionsRequest.Location secretsLocation = FunctionsRequest.Location.Inline;
+        bytes memory encryptedSecretsReference = "";
+        string[] memory args = new string[](0);
+        bytes[] memory bytesArgs = new bytes[](0);
         uint64 subscriptionId = 1;
         uint32 callbackGasLimit = 300000;
         
         // Owner can set template
-        topOracle.setRequestTemplate(encodedRequest, subscriptionId, callbackGasLimit);
+        topOracle.setRequestTemplate(source, secretsLocation, encryptedSecretsReference, args, bytesArgs, subscriptionId, callbackGasLimit);
         
         // Non-owner cannot set template
         vm.prank(nonOwner);
         vm.expectRevert("only owner");
-        topOracle.setRequestTemplate(encodedRequest, subscriptionId, callbackGasLimit);
+        topOracle.setRequestTemplate(source, secretsLocation, encryptedSecretsReference, args, bytesArgs, subscriptionId, callbackGasLimit);
     }
 
     function testTopOracle_SetRequestTemplate_EmptyRequest() public {
         // Cannot set empty request
-        vm.expectRevert("empty template");
-        topOracle.setRequestTemplate("", 1, 300000);
+        vm.expectRevert("empty source");
+        topOracle.setRequestTemplate("", FunctionsRequest.Location.Inline, "", new string[](0), new bytes[](0), 1, 300000);
     }
 
     function testTopOracle_SetRequestTemplate_ZeroSubscription() public {
         // Cannot set zero subscription
         vm.expectRevert("zero sub");
-        topOracle.setRequestTemplate(abi.encode("test"), 0, 300000);
+        topOracle.setRequestTemplate("test", FunctionsRequest.Location.Inline, "", new string[](0), new bytes[](0), 0, 300000);
     }
 
     function testTopOracle_SetRequestTemplate_ZeroGas() public {
         // Cannot set zero gas
         vm.expectRevert("zero gas");
-        topOracle.setRequestTemplate(abi.encode("test"), 1, 0);
+        topOracle.setRequestTemplate("test", FunctionsRequest.Location.Inline, "", new string[](0), new bytes[](0), 1, 0);
     }
 
     function testTopOracle_SetEpochDuration_OnlyOwner() public {
@@ -493,7 +501,11 @@ contract ConfluxOwnershipTests is Test, Deployers {
     }
 
     function testTopOracle_StartRebateEpochs_OnlyOwner() public {
-        bytes memory encodedRequest = abi.encode("test-request");
+        string memory source = "test-request";
+        FunctionsRequest.Location secretsLocation = FunctionsRequest.Location.Inline;
+        bytes memory encryptedSecretsReference = "";
+        string[] memory args = new string[](0);
+        bytes[] memory bytesArgs = new bytes[](0);
         uint64 subscriptionId = 1;
         uint32 callbackGasLimit = 300000;
         
@@ -505,24 +517,37 @@ contract ConfluxOwnershipTests is Test, Deployers {
             address(0) // Will be set later if needed
         );
         
+        // First set the template
+        newOracle.setRequestTemplate(source, secretsLocation, encryptedSecretsReference, args, bytesArgs, subscriptionId, callbackGasLimit);
+        
         // Owner can start rebate epochs
-        newOracle.startRebateEpochs(100, encodedRequest, subscriptionId, callbackGasLimit);
+        newOracle.startRebateEpochs(100);
         assertEq(newOracle.epochDurationBlocks(), 100);
         
         // Non-owner cannot start rebate epochs
         vm.prank(nonOwner);
         vm.expectRevert("only owner");
-        newOracle.startRebateEpochs(200, encodedRequest, subscriptionId, callbackGasLimit);
+        newOracle.startRebateEpochs(200);
     }
 
     function testTopOracle_StartRebateEpochs_AlreadyInitialized() public {
         // Cannot start rebate epochs twice
-        bytes memory encodedRequest = abi.encode("test-request");
-        uint64 subscriptionId = 1;
-        uint32 callbackGasLimit = 300000;
-        
         vm.expectRevert("already initialized");
-        topOracle.startRebateEpochs(200, encodedRequest, subscriptionId, callbackGasLimit);
+        topOracle.startRebateEpochs(200);
+    }
+
+    function testTopOracle_StartRebateEpochs_TemplateNotSet() public {
+        // Create new oracle for this test
+        TestableTopOracle newOracle = new TestableTopOracle(
+            address(functionsRouter),
+            keccak256("test-don-3"),
+            address(registry),
+            address(0)
+        );
+        
+        // Cannot start rebate epochs without setting template first
+        vm.expectRevert("template not set");
+        newOracle.startRebateEpochs(100);
     }
 
     function testTopOracle_RefreshTopNow_OnlyOwner() public {

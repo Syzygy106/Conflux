@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {FunctionsClient} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/FunctionsClient.sol";
+import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
 
 // Minimal interface for accessing daemon addresses by id
 interface IDaemonRegistryView {
@@ -52,9 +53,13 @@ contract TopOracle is FunctionsClient {
   event TopRefreshRequested(uint64 epoch, uint256 atBlock);
   event TopIdsUpdated(uint16 count);
 
-  // === Request template (prepared CBOR + subId + callbackGas) ===
+  // === Request template (direct parameters) ===
   struct RequestTemplate {
-    bytes encodedRequest;     // req.encodeCBOR()
+    string source;
+    FunctionsRequest.Location secretsLocation;
+    bytes encryptedSecretsReference;
+    string[] args;
+    bytes[] bytesArgs;
     uint64 subscriptionId;
     uint32 callbackGasLimit;
   }
@@ -93,18 +98,21 @@ contract TopOracle is FunctionsClient {
   }
 
   /**
-   * @notice Saves a pre-assembled CBOR template for Functions request.
-   *         Assemble req off-chain and pass req.encodeCBOR().
+   * @notice Sets the request template with direct parameters for Functions request.
    */
   function setRequestTemplate(
-    bytes calldata encodedRequest,
+    string calldata source,
+    FunctionsRequest.Location secretsLocation,
+    bytes calldata encryptedSecretsReference,
+    string[] calldata args,
+    bytes[] calldata bytesArgs,
     uint64 subscriptionId,
     uint32 callbackGasLimit
   ) external onlyOwner {
-    require(encodedRequest.length > 0, "empty template");
+    require(bytes(source).length > 0, "empty source");
     require(subscriptionId != 0, "zero sub");
     require(callbackGasLimit != 0, "zero gas");
-    _tpl = RequestTemplate(encodedRequest, subscriptionId, callbackGasLimit);
+    _tpl = RequestTemplate(source, secretsLocation, encryptedSecretsReference, args, bytesArgs, subscriptionId, callbackGasLimit);
     emit TemplateUpdated(subscriptionId, callbackGasLimit);
   }
 
@@ -118,28 +126,19 @@ contract TopOracle is FunctionsClient {
   }
 
   /**
-   * @notice Initialization: sets epoch duration and first Functions request.
-   *         Convenient to call once after deployment. encodedRequest is already CBOR.
+   * @notice Initialization: sets epoch duration and starts first Functions request.
+   *         Requires that setRequestTemplate() has been called first.
    */
-  function startRebateEpochs(
-    uint256 initialEpochDurationBlocks,
-    bytes calldata encodedRequest,
-    uint64 subscriptionId,
-    uint32 callbackGasLimit
-  ) external onlyOwner {
+  function startRebateEpochs(uint256 initialEpochDurationBlocks) external onlyOwner {
     require(epochDurationBlocks == 0, "already initialized");
     require(initialEpochDurationBlocks > 0, "zero epoch");
-    require(encodedRequest.length > 0, "empty tpl");
-    require(subscriptionId != 0, "zero sub");
-    require(callbackGasLimit != 0, "zero gas");
+    require(bytes(_tpl.source).length > 0, "template not set");
 
     epochDurationBlocks = initialEpochDurationBlocks;
-    _tpl = RequestTemplate(encodedRequest, subscriptionId, callbackGasLimit);
 
-    // Send first request immediately
+    // Send first request immediately using the template
     hasPendingTopRequest = true;
-    lastRequestId = _sendRequest(encodedRequest, subscriptionId, callbackGasLimit, donId);
-    emit TemplateUpdated(subscriptionId, callbackGasLimit);
+    lastRequestId = _sendRequestFromTemplate();
     emit EpochDurationUpdated(initialEpochDurationBlocks);
     emit TopRefreshRequested(topEpoch, block.number);
   }
@@ -148,10 +147,9 @@ contract TopOracle is FunctionsClient {
    * @notice Force update manually (by admin), without waiting for epoch expiration.
    */
   function refreshTopNow() external onlyOwner {
-    RequestTemplate memory t = _tpl;
-    require(t.encodedRequest.length != 0, "tpl not set");
+    require(bytes(_tpl.source).length > 0, "tpl not set");
     hasPendingTopRequest = true;
-    lastRequestId = _sendRequest(t.encodedRequest, t.subscriptionId, t.callbackGasLimit, donId);
+    lastRequestId = _sendRequestFromTemplate();
     emit TopRefreshRequested(topEpoch, block.number);
   }
 
@@ -159,7 +157,7 @@ contract TopOracle is FunctionsClient {
 
   /**
    * @notice If epoch has expired and there is no pending request — sends new Functions request,
-   *         using saved CBOR template. This is NO LONGER a mockup.
+   *         using saved template. This is NO LONGER a mockup.
    */
   function maybeRequestTopUpdate() external onlyHookAuthority {
     if (epochDurationBlocks == 0) return;
@@ -172,14 +170,33 @@ contract TopOracle is FunctionsClient {
       uint256 daemonCount = IDaemonRegistryView(registry).length();
       if (daemonCount == 0) return; // Skip request if no daemons registered
       
-      RequestTemplate memory t = _tpl;
-      require(t.encodedRequest.length != 0, "tpl not set");
+      require(bytes(_tpl.source).length > 0, "tpl not set");
 
       hasPendingTopRequest = true;
-      lastRequestId = _sendRequest(t.encodedRequest, t.subscriptionId, t.callbackGasLimit, donId);
+      lastRequestId = _sendRequestFromTemplate();
 
       emit TopRefreshRequested(topEpoch, block.number);
     }
+  }
+
+  // ===== Helper functions =====
+
+  /**
+   * @dev Helper function to send a request using the stored template
+   */
+  function _sendRequestFromTemplate() internal returns (bytes32) {
+    RequestTemplate memory t = _tpl;
+    
+    FunctionsRequest.Request memory req;
+    req = FunctionsRequest.initializeRequest(req, FunctionsRequest.Location.Inline, FunctionsRequest.CodeLanguage.JavaScript, t.source);
+    req.secretsLocation = t.secretsLocation;
+    req.encryptedSecretsReference = t.encryptedSecretsReference;
+    
+    // Set args and bytesArgs directly since they're already memory arrays
+    req.args = t.args;
+    req.bytesArgs = t.bytesArgs;
+    
+    return _sendRequest(FunctionsRequest.encodeCBOR(req), t.subscriptionId, t.callbackGasLimit, donId);
   }
 
   // ===== Chainlink Functions fulfill =====

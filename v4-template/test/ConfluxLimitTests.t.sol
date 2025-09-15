@@ -9,6 +9,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {ConfluxHook} from "../src/ConfluxHook.sol";
 import {DaemonRegistryModerated} from "../src/DaemonRegistryModerated.sol";
 import {TopOracle} from "../src/TopOracle.sol";
+import {FunctionsRequest} from "@chainlink/contracts/src/v0.8/functions/v1_0_0/libraries/FunctionsRequest.sol";
 import "../test/ConfluxRebateTests.t.sol"; // For mock contracts
 
 contract ConfluxLimitTests is Test {
@@ -95,11 +96,19 @@ contract ConfluxLimitTests is Test {
         assertEq(registry.length(), 130, "Should have 130 daemons");
         
         // Activate Oracle
-        bytes memory encodedRequest = abi.encode("test-request");
+        string memory source = "test-request";
+        FunctionsRequest.Location secretsLocation = FunctionsRequest.Location.Inline;
+        bytes memory encryptedSecretsReference = "";
+        string[] memory args = new string[](0);
+        bytes[] memory bytesArgs = new bytes[](0);
         uint64 subscriptionId = 1;
         uint32 callbackGasLimit = 300000;
         
-        topOracle.startRebateEpochs(100, encodedRequest, subscriptionId, callbackGasLimit);
+        // First set the template
+        topOracle.setRequestTemplate(source, secretsLocation, encryptedSecretsReference, args, bytesArgs, subscriptionId, callbackGasLimit);
+        
+        // Then start rebate epochs
+        topOracle.startRebateEpochs(100);
         
         // Wait and fulfill with 130 daemon IDs (should be capped at 128)
         vm.roll(block.number + 10);
