@@ -169,6 +169,64 @@ contract FeeOnTransferToken is ERC20 {
     }
 }
 
+// Malicious daemon that attempts reentrancy during job execution
+contract MaliciousReentrantDaemon is IDaemon {
+    uint128 public rebateAmount;
+    address public token;
+    bool public jobExecuted;
+    address public owner;
+    address public poolManager;
+    PoolKey public poolKey;
+    uint256 public reentrancyAttempts;
+    
+    constructor(uint128 _rebateAmount, address _token, address _poolManager, PoolKey memory _poolKey) {
+        rebateAmount = _rebateAmount;
+        token = _token;
+        owner = msg.sender;
+        poolManager = _poolManager;
+        poolKey = _poolKey;
+    }
+    
+    function getRebateAmount(uint256) external view override returns (int128) {
+        return int128(rebateAmount);
+    }
+    
+    function accomplishDaemonJob() external override {
+        jobExecuted = true;
+        reentrancyAttempts++;
+        
+        // Attempt reentrancy by calling the pool manager's swap function
+        // This should trigger the hook's beforeSwap again, testing reentrancy guard
+        try IPoolManager(poolManager).swap(
+            poolKey,
+            SwapParams({
+                zeroForOne: true,
+                amountSpecified: 1e18,
+                sqrtPriceLimitX96: 0
+            }),
+            ""
+        ) returns (BalanceDelta) {
+            // If we get here, reentrancy succeeded (this should not happen)
+            reentrancyAttempts++;
+            console2.log("REENTRANCY SUCCESS: This should not happen!");
+        } catch {
+            console2.log("Reentrancy guard is working correctly");
+        }
+    }
+    
+    // Helper to approve tokens for hook
+    function approveHook(address _hook, uint256 amount) external {
+        require(msg.sender == owner, "Only owner");
+        IERC20(token).approve(_hook, amount);
+    }
+    
+    // Helper to approve tokens for pool manager
+    function approvePoolManager(address _poolManager, uint256 amount) external {
+        require(msg.sender == owner, "Only owner");
+        IERC20(token).approve(_poolManager, amount);
+    }
+}
+
 contract ConfluxRebateTests is Test, Deployers {
     using EasyPosm for IPositionManager;
     using PoolIdLibrary for PoolKey;
@@ -1038,6 +1096,70 @@ contract ConfluxRebateTests is Test, Deployers {
         
         // Job should not be executed (should revert)
         assertFalse(jobFailingDaemon.jobExecuted(), "Job should not be executed due to revert");
+    }
+
+    // ===== CONDITION 15: REENTRANCY ATTACK =====
+    
+    function testRebateCondition_ReentrancyAttack() public {
+        // Create a malicious daemon that tries to re-enter during job execution
+        MaliciousReentrantDaemon maliciousDaemon = new MaliciousReentrantDaemon(100e15, Currency.unwrap(currency0), address(poolManager), poolKey);
+        deal(Currency.unwrap(currency0), address(maliciousDaemon), 10e18);
+        maliciousDaemon.approveHook(address(hook), 10e18);
+        maliciousDaemon.approvePoolManager(address(poolManager), 10e18);
+        
+        // Register and activate malicious daemon
+        vm.prank(registryOwner);
+        registry.add(address(maliciousDaemon), address(this));
+        registry.setActive(address(maliciousDaemon), true);
+        
+        // Update top to malicious daemon
+        uint256[8] memory topIds;
+        topIds[0] = 4; // maliciousDaemon has id 4
+        topIds[1] = 0xffff;
+        
+        console2.log("Setting maliciousDaemon as top daemon...");
+        topOracle.refreshTopNow();
+        bytes32 requestId = topOracle.lastRequestId();
+        topOracle.testFulfillRequest(requestId, topIds);
+        
+        console2.log("Current top:", topOracle.getCurrentTop());
+        console2.log("MaliciousDaemon active before swap:", registry.active(address(maliciousDaemon)));
+        
+        // Perform swap - should be protected by reentrancy guard
+        console2.log("\nPerforming swap with malicious reentrant daemon...");
+        uint256 swapAmount = 1e18;
+        uint256 maliciousDaemonBalanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(maliciousDaemon));
+        console2.log("MaliciousDaemon balance before swap:", maliciousDaemonBalanceBefore);
+        
+        // The swap should succeed despite the reentrancy attempt
+        performSwap(swapAmount, true);
+        
+        uint256 maliciousDaemonBalanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(maliciousDaemon));
+        console2.log("MaliciousDaemon balance after swap:", maliciousDaemonBalanceAfter);
+        console2.log("MaliciousDaemon paid:", maliciousDaemonBalanceBefore - maliciousDaemonBalanceAfter);
+        console2.log("MaliciousDaemon job executed:", maliciousDaemon.jobExecuted());
+        console2.log("MaliciousDaemon reentrancy attempts:", maliciousDaemon.reentrancyAttempts());
+        
+        // Daemon should still pay rebate (reentrancy guard prevents double execution)
+        assertGt(maliciousDaemonBalanceBefore - maliciousDaemonBalanceAfter, 0, "Daemon should pay rebate");
+        
+        // Job should be executed only once (reentrancy guard prevents re-entry)
+        assertTrue(maliciousDaemon.jobExecuted(), "Job should be executed");
+        
+        // CRITICAL: reentrancyAttempts should be exactly 1, meaning:
+        // - Initial call to accomplishDaemonJob() = 1
+        // - Reentrancy attempt should be blocked, so it stays at 1
+        // If it's 2, then reentrancy succeeded (BAD!)
+        // If it's 1, then reentrancy was blocked (GOOD!)
+        assertEq(maliciousDaemon.reentrancyAttempts(), 1, "REENTRANCY VULNERABILITY: reentrancyAttempts should be 1, not 2. If it's 2, reentrancy succeeded!");
+        
+        console2.log("=== REENTRANCY PROTECTION VERIFICATION ===");
+        console2.log("reentrancyAttempts =", maliciousDaemon.reentrancyAttempts());
+        if (maliciousDaemon.reentrancyAttempts() == 1) {
+            console2.log(" REENTRANCY PROTECTION: WORKING - Only 1 attempt recorded");
+        } else {
+            console2.log(" REENTRANCY VULNERABILITY: FAILED - Multiple attempts recorded");
+        }
     }
 
     // ===== MULTI-EPOCH TESTING =====

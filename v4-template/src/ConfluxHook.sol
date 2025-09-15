@@ -11,6 +11,7 @@ import {Currency} from "v4-core/src/types/Currency.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary, toBeforeSwapDelta} from "v4-core/src/types/BeforeSwapDelta.sol";
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 import {HookOwnable} from "./base/HookOwnable.sol";
 import {PoolOwnable} from "./base/PoolOwnable.sol";
@@ -33,7 +34,7 @@ interface IDaemonRegistryModerated {
   function banned(address daemon) external view returns (bool);
 }
 
-contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable {
+contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable, ReentrancyGuard {
   using PoolIdLibrary for PoolKey;
 
   // Keep events as they were (they are "cheap" for runtime)
@@ -107,7 +108,7 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable {
     PoolKey calldata key,
     SwapParams calldata params,
     bytes calldata
-  ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+  ) internal override nonReentrant returns (bytes4, BeforeSwapDelta, uint24) {
     // epochs disabled
     if (topOracle.epochDurationBlocks() == 0) {
       return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
