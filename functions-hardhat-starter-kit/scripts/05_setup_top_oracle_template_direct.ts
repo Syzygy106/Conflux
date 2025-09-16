@@ -1,8 +1,10 @@
-import { ethers } from "hardhat"
+import { SecretsManager } from "@chainlink/functions-toolkit"
 import fs from "fs"
 import path from "path"
 
 async function main() {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { ethers, network } = require("hardhat")
   console.log("🔧 Setting up TopOracle request template with direct parameters...")
 
   const artifactsDir = path.join(__dirname, "../deploy-artifacts")
@@ -28,7 +30,36 @@ async function main() {
 
   // Set request template with direct parameters (no CBOR encoding!)
   const secretsLocation = 2 // Location.DONHosted
-  const encryptedSecretsReference = "0x" // Empty for DONHosted
+
+  // Use empty reference on local; build DON-hosted reference on live networks
+  let encryptedSecretsReference = "0x"
+  if (network.name !== "localFunctionsTestnet") {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { networks } = require("../networks")
+    const functionsRouterAddress = networks[network.name].functionsRouter
+    const donId = networks[network.name].donId
+
+    const slotIdStr = process.env.DON_SECRETS_SLOT_ID
+    const versionStr = process.env.DON_SECRETS_VERSION
+    if (!slotIdStr || !versionStr) {
+      throw new Error(
+        "Missing DON secrets reference. Set DON_SECRETS_SLOT_ID and DON_SECRETS_VERSION environment variables."
+      )
+    }
+
+    const [signer] = await ethers.getSigners()
+    const secretsManager = new SecretsManager({ signer, functionsRouterAddress, donId })
+    await secretsManager.initialize()
+    encryptedSecretsReference = secretsManager.buildDONHostedEncryptedSecretsReference({
+      slotId: parseInt(slotIdStr),
+      version: parseInt(versionStr),
+    })
+    console.log(
+      `Using DON-hosted secrets reference (slotId=${slotIdStr}, version=${versionStr}) for network ${network.name}`
+    )
+  } else {
+    console.log("Local network detected: using inline secrets from local Functions runner")
+  }
   const args = [registryAddress] // Registry address
   const bytesArgs = [] // Empty
   const callbackGasLimit = 300000

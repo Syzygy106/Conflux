@@ -20,3 +20,7 @@ Thumbs.db
 
 # Git snapshot
 .gas-snapshot
+functions-hardhat-starter-kit/deploy-artifacts/DaemonRegistryModerated.json
+functions-hardhat-starter-kit/deploy-artifacts/DaemonSet.json
+functions-hardhat-starter-kit/deploy-artifacts/TopOracle.json
+functions-hardhat-starter-kit/networks.js
