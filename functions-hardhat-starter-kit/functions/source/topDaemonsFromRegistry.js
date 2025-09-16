@@ -17,7 +17,7 @@ const chainId = parseInt(secrets.chainId || "1337")
 // Use JsonRpcProvider with secrets-based configuration
 const provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: "localFunctionsTestnet" })
 
-// Registry interface for length stub + ranged aggregation
+// Registry interface for V4 architecture
 const regIface = new ethers.Interface([
   "function length() view returns (uint256)",
   "function aggregatePointsRange(uint256 start, uint256 count) view returns (uint128[])",

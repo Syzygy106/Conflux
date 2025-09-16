@@ -8,7 +8,7 @@
     "compile": "hardhat compile",
     "test": "npm run test:unit",
     "test:unit": "hardhat test test/unit/*.spec.js",
-    "startLocalFunctionsTestnet": "node scripts/startLocalFunctionsTestnet.js",
+    "startLocalFunctionsTestnet": "node scripts/startLocalFunctionsTestnetV4.js",
     "listen": "nodemon scripts/listen.js",
     "lint": "npm run lint:contracts && npm run format:check",
     "lint:fix": "solhint 'contracts/**/*.sol' --fix",
@@ -16,8 +16,9 @@
     "lint:contracts:fix": "solhint 'contracts/**/*.sol' --fix",
     "format:check": "prettier --check .",
     "format:fix": "prettier --write .",
-    "full:cycle": "node scripts/full_cycle.js",
-    "full-cycle": "node scripts/full_cycle.js"
+    "build:v4": "node scripts/build-and-copy-artifacts.js",
+    "test:v4": "node scripts/full_cycle_top_oracle.js",
+    "deploy:v4": "npm run build:v4 && npx hardhat compile && npx hardhat run scripts/00_deploy_v4_daemons_and_registry.ts --network localFunctionsTestnet && npx hardhat run scripts/02_deploy_v4_top_oracle.ts --network localFunctionsTestnet"
   },
   "dependencies": {
     "@chainlink/contracts": "^1.4.0",
@@ -29,10 +30,12 @@
     "@nomicfoundation/hardhat-network-helpers": "^1.0.6",
     "@nomicfoundation/hardhat-toolbox": "^2.0.0",
     "@nomiclabs/hardhat-ethers": "^2.2.2",
+    "@openzeppelin/contracts": "^5.4.0",
     "@openzeppelin/contracts-upgradeable": "^4.9.3",
     "@typechain/ethers-v5": "^10.1.0",
     "@typechain/hardhat": "^6.1.3",
     "axios": "^1.1.3",
+    "cbor": "^10.0.11",
     "chai": "^4.3.6",
     "eth-crypto": "^2.4.0",
     "ethers": "^5.7.2",
