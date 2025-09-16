@@ -37,18 +37,15 @@ interface IDaemonRegistryModerated {
 contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable, ReentrancyGuard {
   using PoolIdLibrary for PoolKey;
 
-  // Keep events as they were (they are "cheap" for runtime)
   event RebateDisabled(uint16 indexed daemonId, string reason);
   event RebateExecuted(uint16 indexed daemonId, uint128 amount);
   event DaemonJobSuccess(uint16 indexed daemonId);
   event DaemonJobFailure(uint16 indexed daemonId, string reason);
 
-  // Addresses of extracted modules and rebate token
   ITopOracle public immutable topOracle;
   IDaemonRegistryModerated public immutable registry;
   address public immutable rebateToken;
 
-  // Rebate management per pools + rebate time telemetry
   mapping(PoolId => bool) public isRebateEnabled;
   mapping(PoolId => bool) public isRebateToken0; // true if rebate token is currency0, false if currency1
   mapping(uint16 => uint256) public lastTimeRebateCommitted;
@@ -146,7 +143,6 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable, ReentrancyGuard {
       return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
-    // Get rebate amount with low-level staticcall (saves bytecode compared to try/catch)
     (bool okAmt, bytes memory rawAmt) =
       rebatePayer.staticcall(abi.encodeWithSelector(IDaemon.getRebateAmount.selector, block.number));
     if (!okAmt || rawAmt.length < 32) {
@@ -176,7 +172,6 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable, ReentrancyGuard {
       return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
-    // Protection against fee-on-transfer
     uint256 received = IERC20(rebateToken).balanceOf(address(poolManager)) - balBefore;
     if (received < required) {
       registry.setActiveFromHook(rebatePayer, false);
@@ -209,34 +204,6 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable, ReentrancyGuard {
     return (BaseHook.beforeSwap.selector, toBeforeSwapDelta(specDelta, unspecDelta), 0);
   }
 
-//   function _afterSwap(
-//     address,
-//     PoolKey calldata,
-//     SwapParams calldata,
-//     BalanceDelta,
-//     bytes calldata
-//   ) internal override returns (bytes4, int128) {
-//     return (BaseHook.afterSwap.selector, 0);
-//   }
-
-//   function _beforeAddLiquidity(
-//     address,
-//     PoolKey calldata key,
-//     ModifyLiquidityParams calldata,
-//     bytes calldata
-//   ) internal override returns (bytes4) {
-//     return BaseHook.beforeAddLiquidity.selector;
-//   }
-
-//   function _beforeRemoveLiquidity(
-//     address,
-//     PoolKey calldata key,
-//     ModifyLiquidityParams calldata,
-//     bytes calldata
-//   ) internal override returns (bytes4) {
-//     return BaseHook.beforeRemoveLiquidity.selector;
-//   }
-
   // ---- Admin per-pool
   function toggleRebate(PoolKey calldata key) external onlyPoolOwner(key) {
     PoolId id = key.toId();
@@ -247,7 +214,6 @@ contract ConfluxHook is BaseHook, HookOwnable, PoolOwnable, ReentrancyGuard {
     return isRebateEnabled[key.toId()];
   }
 
-  // ---- ERC20 helper (kept as you had it)
   function _tryTransferFrom(address token, address from, address to, uint256 amount) internal returns (bool) {
     (bool success, bytes memory data) =
       token.call(abi.encodeWithSelector(IERC20.transferFrom.selector, from, to, amount));
