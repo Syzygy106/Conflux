@@ -69,6 +69,56 @@ contract ConfluxLimitTests is Test {
         registry.setHookAuthority(address(hook));
     }
 
+    function testTopOracleFulfillErrorClearsPendingAndAllowsRetry() public {
+        console2.log("=== TESTING FULFILL ERROR HANDLING (no deadlock) ===");
+
+        // Prepare template and start epoch
+        string memory source = "test-request";
+        FunctionsRequest.Location secretsLocation = FunctionsRequest.Location.Inline;
+        bytes memory encryptedSecretsReference = "";
+        string[] memory args = new string[](0);
+        bytes[] memory bytesArgs = new bytes[](0);
+        uint64 subscriptionId = 1;
+        uint32 callbackGasLimit = 300000;
+
+        topOracle.setRequestTemplate(source, secretsLocation, encryptedSecretsReference, args, bytesArgs, subscriptionId, callbackGasLimit);
+        topOracle.startRebateEpochs(50);
+
+        // Grab current request id and simulate an error from DON
+        bytes32 reqId = topOracle.lastRequestId();
+        bytes memory err = abi.encodePacked("FunctionsError: simulated");
+        topOracle.testFulfillError(reqId, err);
+
+        // After error, pending flag must be cleared and epoch start advanced
+        assertFalse(topOracle.hasPendingTopRequest(), "pending flag must be cleared on error");
+        assertGt(topOracle.lastEpochStartBlock(), 0, "epoch start should advance on error");
+
+        // Register at least one daemon so maybeRequestTopUpdate isn't short-circuited
+        TestDaemon d = new TestDaemon(100e15, Currency.unwrap(currency0));
+        address[] memory addrs = new address[](1);
+        address[] memory owners = new address[](1);
+        addrs[0] = address(d);
+        owners[0] = address(this);
+        vm.prank(registryOwner);
+        registry.addMany(addrs, owners);
+        // setActive must be called by the daemon owner (address(this))
+        registry.setActive(address(d), true);
+
+        // Move blocks to allow maybeRequestTopUpdate to consider expiration
+        uint256 beforeBlock = block.number;
+        vm.roll(beforeBlock + 60);
+        // Ensure different timestamp so mock router returns a different requestId
+        vm.warp(block.timestamp + 1);
+
+        // maybeRequestTopUpdate should be callable by hook authority; set it
+        topOracle.setHookAuthority(address(this));
+        topOracle.maybeRequestTopUpdate();
+
+        // New request should be sent
+        bytes32 newReqId = topOracle.lastRequestId();
+        assertTrue(newReqId != bytes32(0) && newReqId != reqId, "should have new request id after retry");
+    }
+
     function testTopOracle128IdsCap() public {
         console2.log("=== TESTING 128 IDs CAP FOR TOP ORACLE ===");
         

@@ -66,6 +66,12 @@ contract TestableTopOracle is TopOracle {
         bytes memory response = abi.encode(topIds);
         fulfillRequest(requestId, response, "");
     }
+
+    // Expose error path for fulfillment testing
+    function testFulfillError(bytes32 requestId, bytes memory err) external {
+        bytes memory emptyResponse;
+        fulfillRequest(requestId, emptyResponse, err);
+    }
 }
 
 // Test daemon implementation

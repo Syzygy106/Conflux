@@ -53,6 +53,7 @@ contract TopOracle is FunctionsClient {
 
   event TopRefreshRequested(uint64 epoch, uint256 atBlock);
   event TopIdsUpdated(uint16 count);
+  event TopRequestFailed(bytes err);
 
   // === Request template (direct parameters) ===
   struct RequestTemplate {
@@ -208,7 +209,15 @@ contract TopOracle is FunctionsClient {
    */
   function fulfillRequest(bytes32 requestId, bytes memory response, bytes memory err) internal override {
     require(requestId == lastRequestId, "UnknownRequest");
-    require(err.length == 0, "FunctionsError");
+
+    // If DON returned an error, do not revert. Clear pending flag and throttle retries by
+    // advancing the epoch start block, then emit a failure event.
+    if (err.length != 0) {
+      hasPendingTopRequest = false;
+      lastEpochStartBlock = block.number;
+      emit TopRequestFailed(err);
+      return;
+    }
 
     uint256[8] memory words = abi.decode(response, (uint256[8]));
     // 8 SSTORE — one word at a time
