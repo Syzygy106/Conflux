@@ -1,3 +1,57 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.swp
+*.swo
+.idea/
+.vscode/
+.history/
+
+# Env / secrets
+.env
+.env.*
+!.env.enc.example
+.env.enc
+
+# Node
+**/node_modules/
+
+# Hardhat outputs
+**/artifacts/
+**/cache/
+**/build/
+functions-hardhat-starter-kit/build/
+functions-hardhat-starter-kit/artifacts/
+functions-hardhat-starter-kit/cache/
+
+# Foundry outputs
+**/out/
+**/cache/
+**/broadcast/
+*.gas-snapshot
+
+# Coverage
+coverage/
+**/coverage/
+**/coverage*.json
+**/lcov.info
+
+# Generated copies of v4 sources in Hardhat (copied from v4-template)
+functions-hardhat-starter-kit/contracts/v4/
+
+# Deployment/runtime artifacts (addresses, temp JSON)
+functions-hardhat-starter-kit/deploy-artifacts/
+functions-hardhat-starter-kit/scripts/deploy-artifacts/
+
+# Misc temp
+logs/
+**/*.tmp
+
 # Environment files (keep these private)
 .env
 .env.local
