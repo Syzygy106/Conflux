@@ -51,17 +51,7 @@ npx hardhat run scripts/deploy/02_deploy_daemons_and_add.ts --network ethereumSe
 ```
 Artifacts: `deploy-artifacts/DaemonSet.json` (contains `addresses`).
 
-### 5) Configure daemons (rebate token and approvals)
-Sends 1 LINK and approves PoolManager to pull it; funds each daemon with 0.05 ETH.
-```bash
-# Defaults used if not overridden:
-# REBATE_TOKEN=0x779877A7B0D9E8603169DdbD7836e478b4624789 (LINK Sepolia)
-# REBATE_AMOUNT=1   # 1 LINK
-# REBATE_ETH=0.05   # 0.05 ETH
-
-npx hardhat run scripts/deploy/03_configure_daemons.ts --network ethereumSepolia
-```
-Note: PoolManager (Sepolia) is auto-selected from AddressConstants for chain 11155111.
+<!-- Moved below Hook deployment so we can approve the Hook as spender -->
 
 ### 6) Deploy TopOracle (no subscription logic here)
 ```bash
@@ -123,6 +113,72 @@ cd ../functions-hardhat-starter-kit
 export HOOK=<ConfluxHook.address>
 export TOP_ORACLE=<TopOracle.address>
 npx hardhat run scripts/deploy/04_wire_hook_authorities.ts --network ethereumSepolia
+```
+
+### 13) Configure daemons (rebate token, funding, approvals)
+Run AFTER the hook is deployed so we can approve it as spender. The script:
+- sets rebate token (LINK by default),
+- transfers LINK to each daemon,
+- approves BOTH the Hook and PoolManager as spenders,
+- optionally funds each daemon with ETH for gas.
+
+```bash
+# Defaults if not overridden:
+# REBATE_TOKEN=0x779877A7B0D9E8603169DdbD7836e478b4624789   # LINK Sepolia
+# REBATE_AMOUNT=1        # 1 LINK per daemon
+# REBATE_ETH=0.05        # 0.05 ETH per daemon
+
+export HOOK=<ConfluxHook.address>
+npx hardhat run scripts/deploy/03_configure_daemons.ts --network ethereumSepolia
+```
+Notes:
+- The script now requires `HOOK` and approves it as the ERC20 spender (the Hook calls `transferFrom`).
+- It also approves PoolManager for completeness.
+
+### 14) (Optional) Create pool and add liquidity (Foundry)
+If you need to stand up a pool involving the rebate token and your custom token:
+```bash
+cd ../v4-template
+export TOKEN0=<token0_address>
+export TOKEN1=<token1_address>
+export HOOK=<ConfluxHook.address>
+
+# Amounts in raw wei of each token
+export AMOUNT0_WEI=<amount_for_token0_in_wei>
+export AMOUNT1_WEI=<amount_for_token1_in_wei>
+
+forge script script/01_CreatePoolAndAddLiquidity.s.sol:CreatePoolAndAddLiquidityScript \
+  --rpc-url $ETHEREUM_SEPOLIA_RPC_URL \
+  --private-key $PRIVATE_KEY \
+  --broadcast
+```
+
+### 15) (Optional) Tiny swap to validate rebate (Foundry)
+Execute a very small swap to trigger the Hook and observe a rebate payment.
+```bash
+cd ../v4-template
+export TOKEN0=<token0_address>
+export TOKEN1=<token1_address>
+export HOOK=<ConfluxHook.address>
+
+# Tiny input and direction
+export SWAP_IN_WEI=100            # very small amount
+export SWAP_ZERO_FOR_ONE=true     # token0 -> token1; set false for token1 -> token0
+export SWAP_DEADLINE_SEC=3600     # 1 hour
+
+forge script script/03_Swap.s.sol:SwapScript \
+  --rpc-url $ETHEREUM_SEPOLIA_RPC_URL \
+  --private-key $PRIVATE_KEY \
+  --broadcast
+```
+
+Validate on-chain events (example commands):
+```bash
+# Swap tx receipt
+cast receipt <swap_tx_hash> --rpc-url $ETHEREUM_SEPOLIA_RPC_URL
+
+# Hook logs (look for RebateExecuted and DaemonJobSuccess)
+cast logs --address <ConfluxHook.address> --from-block 0 --to-block latest --rpc-url $ETHEREUM_SEPOLIA_RPC_URL
 ```
 
 ---

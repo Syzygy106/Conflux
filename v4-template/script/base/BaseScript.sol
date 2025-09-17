@@ -24,9 +24,9 @@ contract BaseScript is Script {
     /////////////////////////////////////
     // --- Configure These ---
     /////////////////////////////////////
-    IERC20 internal constant token0 = IERC20(0x0165878A594ca255338adfa4d48449f69242Eb8F);
-    IERC20 internal constant token1 = IERC20(0xa513E6E4b8f2a923D98304ec87F64353C4D5C853);
-    IHooks constant hookContract = IHooks(address(0));
+    IERC20 internal token0;
+    IERC20 internal token1;
+    IHooks internal hookContract;
     /////////////////////////////////////
 
     Currency immutable currency0;
@@ -38,6 +38,19 @@ contract BaseScript is Script {
         swapRouter = IUniswapV4Router04(payable(AddressConstants.getV4SwapRouterAddress(block.chainid)));
 
         deployerAddress = getDeployer();
+
+        // Optional env overrides for tokens and hook
+        address envToken0 = vm.envOr("TOKEN0", address(0));
+        address envToken1 = vm.envOr("TOKEN1", address(0));
+        address envHook = vm.envOr("HOOK", address(0));
+
+        // Defaults keep local template values if env not provided
+        address defaultToken0 = 0x0165878A594ca255338adfa4d48449f69242Eb8F;
+        address defaultToken1 = 0xa513E6E4b8f2a923D98304ec87F64353C4D5C853;
+
+        token0 = IERC20(envToken0 == address(0) ? defaultToken0 : envToken0);
+        token1 = IERC20(envToken1 == address(0) ? defaultToken1 : envToken1);
+        hookContract = IHooks(envHook);
 
         (currency0, currency1) = getCurrencies();
 
@@ -51,7 +64,7 @@ contract BaseScript is Script {
         vm.label(address(hookContract), "HookContract");
     }
 
-    function getCurrencies() public pure returns (Currency, Currency) {
+    function getCurrencies() public view returns (Currency, Currency) {
         require(address(token0) != address(token1));
 
         if (token0 < token1) {
