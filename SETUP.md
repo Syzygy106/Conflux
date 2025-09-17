@@ -46,7 +46,7 @@ npx hardhat compile
 ```
 
 ### 6) Next steps by workflow
-- Local full cycle (Functions local testnet): see `functions-hardhat-starter-kit/README_LOCAL.md`
+- Local full cycle (Functions local testnet): see `functions-hardhat-starter-kit/TEST_LOCAL.md`
 - Sepolia deployment: see `functions-hardhat-starter-kit/DEPLOY_SEPOLIA.md`
 
 ### Environment variables quick note
