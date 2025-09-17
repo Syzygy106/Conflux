@@ -11,11 +11,15 @@ Conventions:
 - Run Hardhat scripts in `functions-hardhat-starter-kit/`
 - Run Foundry hook script in `v4-template/`
 
-### 1) Base env (Hardhat)
+### 1) Base env (Hardhat) + build artifacts
 ```bash
 cd functions-hardhat-starter-kit
 export PRIVATE_KEY=0x<YOUR_32_BYTE_HEX_PRIVATE_KEY>
 export ETHEREUM_SEPOLIA_RPC_URL='https://<your-sepolia-rpc-url>'
+
+# If you changed anything in v4-template/src, rebuild and copy artifacts first
+node scripts/build-and-copy-artifacts.js
+npx hardhat compile
 ```
 
 ### 2) DON-hosted secrets (HTTPS RPC URL)

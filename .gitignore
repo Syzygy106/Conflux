@@ -53,6 +53,9 @@ functions-hardhat-starter-kit/scripts/deploy-artifacts/
 logs/
 **/*.tmp
 
+# Etherscan verification inputs
+functions-hardhat-starter-kit/*_standard_input.json
+
 # Environment files (keep these private)
 .env
 .env.local
