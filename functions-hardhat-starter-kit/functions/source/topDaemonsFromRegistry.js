@@ -10,23 +10,39 @@ const REGISTRY = args[0]
 
 const { ethers } = await import("npm:ethers@6.9.0")
 
-// Use secrets from DON for RPC configuration
-const rpcUrl = secrets.rpcUrl || "http://localhost:8545"
-const chainId = parseInt(secrets.chainId || "1337")
+// Use secrets from DON for RPC configuration (must be HTTPS on live DON)
+const rpcUrl = secrets.rpcUrl
+if (!rpcUrl || !rpcUrl.startsWith("http")) throw Error("Missing valid secrets.rpcUrl")
 
-// Use JsonRpcProvider with secrets-based configuration
-const provider = new ethers.JsonRpcProvider(rpcUrl, { chainId, name: "localFunctionsTestnet" })
-
-// Registry interface for V4 architecture
+// Minimal interface and ABI coder
 const regIface = new ethers.Interface([
   "function length() view returns (uint256)",
   "function aggregatePointsRange(uint256 start, uint256 count) view returns (uint128[])",
 ])
 
-// 1) Fetch total (stub). We don't use activation bitmap anymore.
+async function ethCall(to, data) {
+  const body = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "eth_call",
+    params: [{ to, data }, "latest"],
+  }
+  const resp = await Functions.makeHttpRequest({
+    url: rpcUrl,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    data: body,
+    timeout: 15000,
+  })
+  if (!resp || resp.error) throw Error(`RPC error: ${resp?.error || "unknown"}`)
+  const result = resp.data && resp.data.result
+  if (!result || typeof result !== "string" || !result.startsWith("0x")) throw Error("Bad eth_call result")
+  return result
+}
+
+// 1) Fetch total
 const lenData = regIface.encodeFunctionData("length")
-const lenHex = await provider.call({ to: REGISTRY, data: lenData })
-if (!lenHex || typeof lenHex !== "string" || !lenHex.startsWith("0x")) throw Error("Bad length")
+const lenHex = await ethCall(REGISTRY, lenData)
 const total = BigInt(lenHex)
 if (total === 0n) {
   // Return 128 sentinels (0xFFFF) → words are all 1s (16×16-bit segments)
@@ -48,8 +64,7 @@ for (let b = 0n; b < batches; b++) {
   const take = left < BATCH ? left : BATCH
   if (take === 0n) break
   const dataAgg = regIface.encodeFunctionData("aggregatePointsRange", [start, take])
-  const aggHex = await provider.call({ to: REGISTRY, data: dataAgg })
-  if (!aggHex || typeof aggHex !== "string" || !aggHex.startsWith("0x")) throw Error("Bad aggregatePointsRange")
+  const aggHex = await ethCall(REGISTRY, dataAgg)
   const arr = regIface.decodeFunctionResult("aggregatePointsRange", aggHex)[0]
   for (let i = 0n; i < take; i++) {
     const id = Number(start + i) // uint16 range

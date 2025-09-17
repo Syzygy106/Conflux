@@ -5,13 +5,13 @@ import path from "path"
 async function main() {
   console.log("🔍 Checking TopOracle state...")
 
-  const artifactsDir = path.join(__dirname, "../deploy-artifacts")
+  const artifactsDir = path.join(__dirname, "../../deploy-artifacts")
   const topOracleArtifact = JSON.parse(fs.readFileSync(path.join(artifactsDir, "TopOracle.json"), "utf8"))
   const registryArtifact = JSON.parse(fs.readFileSync(path.join(artifactsDir, "DaemonRegistryModerated.json"), "utf8"))
 
-  const topOracleAddress = topOracleArtifact.address
+  const topOracleAddress = process.env.TOP_ORACLE || topOracleArtifact.address
   const registryAddress = registryArtifact.address
-  const subscriptionId = topOracleArtifact.subscriptionId
+  const subscriptionId = process.env.SUBSCRIPTION_ID || topOracleArtifact.subscriptionId || "(env not set)"
 
   const TopOracle = await ethers.getContractFactory("TopOracle")
   const topOracle = await TopOracle.attach(topOracleAddress)

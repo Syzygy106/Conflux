@@ -7,13 +7,14 @@ async function main() {
   const { ethers, network } = require("hardhat")
   console.log("🔧 Setting up TopOracle request template with direct parameters...")
 
-  const artifactsDir = path.join(__dirname, "../deploy-artifacts")
+  const artifactsDir = path.join(__dirname, "../../deploy-artifacts")
   const topOracleArtifact = JSON.parse(fs.readFileSync(path.join(artifactsDir, "TopOracle.json"), "utf8"))
   const registryArtifact = JSON.parse(fs.readFileSync(path.join(artifactsDir, "DaemonRegistryModerated.json"), "utf8"))
 
-  const topOracleAddress = topOracleArtifact.address
+  const topOracleAddress = process.env.TOP_ORACLE || topOracleArtifact.address
   const registryAddress = registryArtifact.address
-  const subscriptionId = topOracleArtifact.subscriptionId
+  // Prefer SUBSCRIPTION_ID from env; fallback to artifact (if present)
+  const subscriptionId = process.env.SUBSCRIPTION_ID ? Number(process.env.SUBSCRIPTION_ID) : topOracleArtifact.subscriptionId
 
   const TopOracle = await ethers.getContractFactory("TopOracle")
   const topOracle = await TopOracle.attach(topOracleAddress)
@@ -24,7 +25,7 @@ async function main() {
 
   // Read the Functions source
   const functionsRequestSource = fs.readFileSync(
-    path.join(__dirname, "../functions/source/topDaemonsFromRegistry.js"),
+    path.join(__dirname, "../../functions/source/topDaemonsFromRegistry.js"),
     "utf8"
   )
 
@@ -35,7 +36,7 @@ async function main() {
   let encryptedSecretsReference = "0x"
   if (network.name !== "localFunctionsTestnet") {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { networks } = require("../networks")
+    const { networks } = require("../../networks")
     const functionsRouterAddress = networks[network.name].functionsRouter
     const donId = networks[network.name].donId
 
@@ -66,7 +67,7 @@ async function main() {
 
   console.log("Setting request template with direct parameters...")
   
-  await topOracle.setRequestTemplate(
+  const txTpl = await topOracle.setRequestTemplate(
     functionsRequestSource,
     secretsLocation,
     encryptedSecretsReference,
@@ -75,12 +76,14 @@ async function main() {
     subscriptionId,
     callbackGasLimit
   )
+  await txTpl.wait(1)
   
   console.log("✅ TopOracle request template set successfully!")
   
   // Also set epoch duration
   console.log("Setting epoch duration to 10 blocks for testing...")
-  await topOracle.setEpochDuration(10)
+  const txEpoch = await topOracle.setEpochDuration(10)
+  await txEpoch.wait(1)
   
   console.log("✅ TopOracle setup completed!")
   

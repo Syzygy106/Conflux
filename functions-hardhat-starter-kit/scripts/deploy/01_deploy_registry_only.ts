@@ -16,7 +16,7 @@ async function main() {
 }
 
 function writeArtifact(name: string, data: any) {
-  const dir = path.join(__dirname, "../deploy-artifacts")
+  const dir = path.join(__dirname, "../../deploy-artifacts")
   if (!fs.existsSync(dir)) fs.mkdirSync(dir)
   fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify(data, null, 2))
 }

@@ -30,11 +30,11 @@ async function main() {
 
   // Step 4: Deploy TopOracle (production consumer)
   console.log("\n🏗️ Step 4: Deploying TopOracle...")
-  sh(`npx hardhat run scripts/02_deploy_v4_top_oracle.ts --network localFunctionsTestnet`, { PRIVATE_KEY: PK })
+  sh(`npx hardhat run scripts/local/02_deploy_v4_top_oracle.local.ts --network localFunctionsTestnet`, { PRIVATE_KEY: PK })
 
   // Step 5: Set TopOracle template and trigger Functions request
   console.log("\n⚙️ Step 5: Setting up TopOracle template and triggering Functions request...")
-  sh(`npx hardhat run scripts/05_setup_top_oracle_template_direct.ts --network localFunctionsTestnet`, { PRIVATE_KEY: PK })
+  sh(`npx hardhat run scripts/deploy/05_setup_top_oracle_template_direct.ts --network localFunctionsTestnet`, { PRIVATE_KEY: PK })
 
   // Step 6: Wait a moment for the Functions request to be processed
   console.log("\n⏳ Step 6: Waiting for Functions request to be processed...")
@@ -43,7 +43,7 @@ async function main() {
 
   // Step 7: Check TopOracle final state
   console.log("\n📊 Step 7: Checking TopOracle final state...")
-  sh(`npx hardhat run scripts/09_check_top_oracle.ts --network localFunctionsTestnet`, { PRIVATE_KEY: PK })
+  sh(`npx hardhat run scripts/deploy/09_check_top_oracle.ts --network localFunctionsTestnet`, { PRIVATE_KEY: PK })
 
   console.log("\n🎉 TopOracle Full Cycle Test Completed!")
   console.log("=====================================")

@@ -4,11 +4,6 @@ pragma solidity ^0.8.30;
 import {DaemonRegistry} from "./base/DaemonRegistry.sol";
 import {LengthMismatch, NotOwner, NotAuthorized} from "./base/Errors.sol";
 
-/// @title DaemonRegistryModerated
-/// @notice Wrapper over DaemonRegistry:
-///         - owner can add/activate/ban daemons;
-///         - hook contract (hookAuthority) can quickly disable/ban daemons
-///           during errors in operation (transfer fail, bad rebate, etc.).
 contract DaemonRegistryModerated is DaemonRegistry {
   address public owner;
   address public hookAuthority; // hook address with moderation rights

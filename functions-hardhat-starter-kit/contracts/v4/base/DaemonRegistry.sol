@@ -42,9 +42,6 @@ contract DaemonRegistry {
     _activationBitmaskWords[wordIndex] = currentWord;
   }
 
-  // Note: bulk add is handled in the hook to also capture per-daemon owners
-
-  // TODO: ADD OnlyHookOwner
   function _add(address daemon, address owner) internal {
     if (daemon == address(0)) revert ZeroAddress();
     if (exists[daemon]) revert DuplicateDaemon();
@@ -83,6 +80,7 @@ contract DaemonRegistry {
     return abi.encodePacked(_daemonAddresses);
   }
 
+  /// To track changes in the registry
   function packedHash() external view returns (bytes32) {
     return keccak256(abi.encodePacked(_daemonAddresses));
   }
@@ -109,7 +107,6 @@ contract DaemonRegistry {
     emit ActivationChanged(daemon, daemonId, isActive);
   }
 
-  // Internal ban API for hook admin: disables daemon and prevents later activation by owner
   function _banDaemon(address daemon) internal {
     if (!exists[daemon]) revert NotExist();
     uint16 daemonId = addressToId[daemon];
@@ -122,7 +119,6 @@ contract DaemonRegistry {
     emit DaemonBanned(daemon, daemonId);
   }
 
-  // Single-activation APIs restricted to daemon owner
   function setActive(address daemon, bool isActive) external {
     if (!exists[daemon]) revert NotExist();
     if (msg.sender != daemonOwner[daemon]) revert NotDaemonOwner();
@@ -136,7 +132,6 @@ contract DaemonRegistry {
     _setActive(daemon, isActive);
   }
 
-  // TODO: ADD OnlyHookOwner
   function _activateMany(address[] calldata daemonAddresses) internal {
     for (uint256 index = 0; index < daemonAddresses.length; index++) {
       address daemon = daemonAddresses[index];
@@ -148,7 +143,6 @@ contract DaemonRegistry {
     }
   }
 
-  // TODO: ADD OnlyHookOwner
   function _deactivateMany(address[] calldata daemonAddresses) internal {
     for (uint256 index = 0; index < daemonAddresses.length; index++) {
       address daemon = daemonAddresses[index];
@@ -191,6 +185,7 @@ contract DaemonRegistry {
 
   /// Returns compact activation bitmap. Bit i corresponds to id i.
   /// Length of the returned bytes is ceil(length()/8).
+  /// Could be used by MEV searchers to track active daemons
   function activationBitmap() external view returns (bytes memory out) {
     uint256 total = _daemonAddresses.length;
     uint256 byteLen = (total + 7) / 8;

@@ -1,7 +1,7 @@
 import { SecretsManager } from "@chainlink/functions-toolkit"
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { ethers, network } = require("hardhat")
-import { networks } from "../networks"
+import { networks } from "../../networks"
 
 /**
  * Uploads DON-hosted secrets for Chainlink Functions and prints slot/version.

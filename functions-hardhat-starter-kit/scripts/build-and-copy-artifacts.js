@@ -9,11 +9,15 @@ async function main() {
 
   console.log("🔨 Building Foundry contracts...");
   
-  // Build Foundry contracts
-  execSync("forge build", { 
-    cwd: v4TemplatePath,
-    stdio: "inherit" 
-  });
+  // Build Foundry contracts (best-effort). If it fails (e.g., optional scripts), continue to copy sources.
+  try {
+    execSync("forge build", { 
+      cwd: v4TemplatePath,
+      stdio: "inherit" 
+    });
+  } catch (e) {
+    console.warn("⚠️  forge build failed — continuing with source copy and Hardhat compile only.");
+  }
 
   console.log("📁 Creating v4 contracts directory in Hardhat...");
   
