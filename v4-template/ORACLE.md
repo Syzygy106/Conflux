@@ -1,100 +1,195 @@
-## TopOracle (Design & Usage)
+# The TopOracle
 
-This document explains the on-chain oracle used with Chainlink Functions to compute and store a ranked set of daemon ids.
+The **TopOracle** is the contract responsible for maintaining the **active set of top daemons** in the Conflux system.  
+It integrates with Chainlink Functions (DON) to periodically fetch and update which daemons should be selected to pay rebates during swaps.
 
-### Scope
-- Contract: `src/TopOracle.sol`
-- Purpose: own and persist the Functions request template, send requests (manually or on epoch), and process DON fulfillments into a compact, on-chain top list
+---
 
-### Chainlink Functions setup
-- Constructor: `(router, donId, registry, hookAuthority)`
-  - `router`: Functions Router address for the current network
-  - `donId`: DON identifier (bytes32)
-  - `registry`: daemon registry address (read-only lookups)
-  - `hookAuthority`: optional authority for in-protocol triggers (can be set later)
-- Request template (owner-only):
-  - `setRequestTemplate(source, secretsLocation, encryptedSecretsReference, args, bytesArgs, subscriptionId, callbackGasLimit)`
-  - Stores parameters in an internal immutable-like struct used for subsequent requests
-  - Typical values:
-    - `secretsLocation = Location.DONHosted` on Sepolia, inline for local
-    - `encryptedSecretsReference` built from DON slot/version (on Sepolia)
-    - `subscriptionId` is a valid Functions subscription where this oracle is a consumer
-    - `callbackGasLimit` sized for decoding and storage (e.g., 300k)
+## Overview
 
-### Epoching and triggers
-- State:
-  - `epochDurationBlocks`: blocks per epoch (0 disables auto-epochs)
-  - `lastEpochStartBlock`: block when the current/last epoch started
-  - `hasPendingTopRequest`: true after a request is sent and before fulfill
-  - `topEpoch`: monotonically increasing counter once fulfill succeeds
-- Owner actions:
-  - `setEpochDuration(blocks)`: enable/adjust epoching (must be > 0)
-  - `startRebateEpochs(initialEpochBlocks)`: one-time init; sends the first request immediately using the stored template
-  - `refreshTopNow()`: manual request without waiting for epoch expiry (requires a stored template)
-- Hook authority action:
-  - `maybeRequestTopUpdate()`: if `epochDurationBlocks > 0`, epoch expired, and no pending request — sends a new request using the template
+The oracle:
 
-### Storage layout for the Top
-- `topPacked[8]`: 8 x 256-bit words; each word stores 16 ids (16 bits each) ⇒ up to 128 ids total
-- `topCount`: number of valid ids (stops at sentinel `0xFFFF`)
-- `topCursor`: round-robin iterator index used by the Hook to cycle through applicants within an epoch
-- `lastRequestId`: last Functions request id
+- Coordinates **rebate epochs** (time windows in blocks where specific daemons are responsible for rebates).
+- Requests updated **top sets** of daemon IDs from an off-chain oracle (Chainlink Functions).
+- Provides the hook with the **current top daemon(s)** during swaps.
+- Ensures misbehaving daemons are skipped and replaced by others.
 
-### Fulfillment path
-- `fulfillRequest(requestId, response, err)` (internal override):
-  - If `err` is non-empty: mark request as not pending, advance `lastEpochStartBlock`, emit `TopRequestFailed`, and return (no revert)
-  - Else: decode `response` as `uint256[8]`, write words into `topPacked`, recompute `topCount` until `0xFFFF` sentinel, reset `topCursor`, increment `topEpoch`, clear pending, and set `lastEpochStartBlock`
+It acts as the **bridge between the Registry (all daemons)** and the **Hook (rebates in pools)**.
 
-### Read/iteration APIs
-- `topIdsAt(index) -> uint16`: fetch id at position (bounds-checked)
-- `getCurrentTop() -> address`: convert current cursor id into a daemon address via `registry.getById`
-- `iterNextTop()` (only hookAuthority): increment cursor (wraps around `topCount`)
+---
 
-### Permissions
-- Owner-only: template/epoch setters, manual refresh, ownership transfer, hookAuthority setter
-- Hook authority: `maybeRequestTopUpdate`, `iterNextTop`
+## Key Responsibilities
 
-### Events
-- `TemplateUpdated(uint64 subscriptionId, uint32 callbackGasLimit)`
-- `EpochDurationUpdated(uint256 blocks)`
-- `TopRefreshRequested(uint64 epoch, uint256 atBlock)`
-- `TopIdsUpdated(uint16 count)`
-- `TopRequestFailed(bytes err)`
-- `OwnerTransferred(address previousOwner, address newOwner)`
-- `HookAuthoritySet(address hookAuthority)`
-- `RegistryUpdated(address newRegistry)`
+1. **Epoch Management**
+   - Defines and enforces rebate epochs, each lasting `epochDurationBlocks`.
+   - Advances epochs automatically once the current block exceeds the epoch boundary.
+   - Resets daemon participation counters each epoch.
 
-### Integration points
-- Off-chain JS (Functions) source computes words for the top based on registry reads (range queries/aggregation)
-- Hook uses `getCurrentTop` and `iterNextTop` to coordinate rebates across the current epoch
-- Registry is read-only for the oracle; updates are done via Functions fulfill
+2. **Oracle Requests**
+   - Sends requests to the Chainlink Functions DON at epoch boundaries or when explicitly refreshed.
+   - Uses a stored **request template** (source, secrets, args, subscription ID, gas limit).
+   - Receives asynchronous responses with the top N daemons (up to 128).
 
-### Failure modes & troubleshooting
-- "tpl not set" revert:
-  - Call `setRequestTemplate` first; on Sepolia wait for 1–2 confirmations before `refreshTopNow()`
-- Request not received in Functions UI:
-  - Ensure `TopOracle` is added as a consumer on the subscription and that the subscription has LINK
-  - Verify DON-hosted secrets slot/version are valid and not expired; re-upload as needed
-- Blocked resource errors in DON logs:
-  - The Functions source must use `Functions.makeHttpRequest` for JSON-RPC; direct provider objects are not allowed
-- No top entries after fulfill:
-  - Ensure the registry has active daemons; review off-chain ranking logic for limits (start/count windows)
+3. **Fulfillment**
+   - Decodes oracle responses (array of daemon IDs).
+   - Updates the `topIds` buffer.
+   - Ensures results are bounded by:
+     - End marker `0xffff` for termination.
+     - Maximum cap of 128 IDs.
 
-### Gas & packing rationale
-- Packing 128 ids into 8 words minimizes storage and decode costs
-- The sentinel `0xFFFF` avoids writing a separate length field inside the words
-- Separate `topCount` is tracked for fast bounds checks and iteration in the Hook
+4. **Integration With Hook**
+   - Exposes functions for the Conflux hook to:
+     - Read the current top daemon.
+     - Advance through top daemons as they are consumed.
+   - Hook calls `maybeRequestTopUpdate` during swaps if an epoch expired.
 
-### Compatibility
-- Paris-compatible (no Cancun-only opcodes)
-- Deploy with Hardhat alongside the registry; the Hook stays in the Foundry/Cancun track
+---
 
-### Typical lifecycle
-1) Deploy `TopOracle` with router + donId + registry
-2) `setHookAuthority` (temporary owner/deployer until the Hook is live)
-3) Create/fund subscription; add consumer `TopOracle`
-4) `setRequestTemplate` with current JS source + DON-hosted secrets + subscription id
-5) `setEpochDuration` or `refreshTopNow()` to kick off the first request
-6) Observe fulfill and `TopIdsUpdated`; then wire the Hook and delegate authority
+## Contract: `TopOracle`
 
+### Core Roles
+
+- **Owner (admin):**
+  - Sets the request template (Chainlink parameters).
+  - Starts and configures rebate epochs.
+  - Changes registry and hook authority addresses.
+
+- **Hook Authority:**
+  - Typically the Conflux Hook.
+  - Allowed to call:
+    - `maybeRequestTopUpdate()` → triggers new oracle request if epoch expired.
+    - `iterNextTop()` → advances the current top pointer after daemons are exhausted.
+
+- **Chainlink DON:**
+  - Responds to oracle requests by calling `fulfillRequest` with encoded daemon IDs.
+  - May also return an error (on failure).
+
+---
+
+## State Variables
+
+- `uint64 epochDurationBlocks`  
+  Number of blocks per epoch (0 means epochs disabled).
+
+- `uint256 currentEpoch`  
+  Current epoch index.
+
+- `uint256 epochEndBlock`  
+  Block number at which the current epoch ends.
+
+- `uint16[] topIds`  
+  Current list of top daemon IDs (packed, max 128).
+
+- `uint256 topPointer`  
+  Index of the next daemon in `topIds` to be used.
+
+- `bytes32 lastRequestId`  
+  ID of the most recent Chainlink Functions request.
+
+- `address registry`  
+  Reference to the `DaemonRegistryModerated`.
+
+- `address hookAuthority`  
+  Contract authorized to consume the oracle results.
+
+---
+
+## Key Functions
+
+### Owner-only
+- `setRequestTemplate(...)`  
+  Defines the Chainlink request template.
+
+- `startRebateEpochs(uint64 duration)`  
+  Enables epoch logic with the given block duration.
+
+- `setRegistry(address)`  
+  Updates registry reference.
+
+- `setHookAuthority(address)`  
+  Updates hook authority.
+
+---
+
+### Hook Authority-only
+- `maybeRequestTopUpdate()`  
+  If epoch ended, send a new request to Chainlink.
+
+- `iterNextTop()`  
+  Advance to the next top daemon in the list.
+
+- `getCurrentTop()`  
+  Returns the daemon ID currently responsible for rebate.
+
+---
+
+### Chainlink-only
+- `fulfillRequest(bytes32 requestId, bytes response, bytes err)`  
+  Internal callback from DON. Updates `topIds` or clears pending state on error.
+
+---
+
+## Lifecycle
+
+1. **Initialization**  
+   - Owner sets request template.  
+   - Owner starts rebate epochs.
+
+2. **Epoch Progression**  
+   - Hook calls `maybeRequestTopUpdate`.  
+   - Oracle sends a request to DON.  
+   - DON fulfills with new top IDs.
+
+3. **Swap Execution**  
+   - Hook queries `getCurrentTop`.  
+   - Selected daemon pays rebate.  
+   - Pointer advances (`iterNextTop`).  
+
+4. **Exhaustion**  
+   - If all daemons in `topIds` are consumed → no more rebates until next epoch refresh.
+
+5. **Failure Modes**  
+   - If DON returns error → epoch progresses but no rebates.  
+   - If top set is empty → swaps proceed with no rebates.  
+
+---
+
+## Invariants & Safety
+
+- **Cap on top set:** max 128 daemons per epoch.  
+- **End marker:** `0xffff` signals end of array.  
+- **One request at a time:** only one pending Chainlink request allowed.  
+- **Disabled epochs:** if `epochDurationBlocks == 0`, no rebates occur.  
+
+---
+
+## Integration With Registry
+
+- Oracle resolves daemon IDs against the Registry.  
+- Only **active, non-banned** daemons are included in top sets.  
+- Hook deactivations (from misbehavior) ensure Oracle won’t reuse bad daemons in future epochs.  
+
+---
+
+## Testing Scenarios
+
+The test suite covers:
+
+- **Disabled epochs:** no rebate logic.  
+- **No top daemons:** swaps without rebates.  
+- **Multiple top daemons:** rotation across swaps until exhausted.  
+- **Error fulfillment:** clearing pending state on DON failure.  
+- **Invalid data:** daemons disabled via hook.  
+- **Exhaustion:** no rebates once all top daemons are consumed.  
+
+---
+
+## Summary
+
+The TopOracle is the **heartbeat of rebate distribution**:  
+- It orchestrates epochs.  
+- Fetches and updates the top daemons via Chainlink.  
+- Provides the hook with correct rebate participants.  
+
+Together with the Registry and the Hook, it ensures **fair, safe, and automated rebate assignment**.
 

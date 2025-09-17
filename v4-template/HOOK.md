@@ -1,63 +1,91 @@
-## ConfluxHook (Rebate Logic)
+# The Conflux Hook
 
-This document summarizes when the hook pays a rebate during swaps and when it does not, plus key parameters and references to tests.
+The **ConfluxHook** is a Uniswap v4 hook contract that integrates **rebate logic** into pool swaps.  
+It acts as the runtime enforcer of the Conflux rebate mechanism by deciding whether daemons should pay rebates to traders, and by executing their jobs when swaps occur.
 
-### Scope
-- Contract: `src/ConfluxHook.sol`
-- Integrations: `TopOracle` (epochs, top list), `DaemonRegistryModerated` (moderation), Uniswap v4 `IPoolManager`
+---
 
-### Pool setup
-- On `afterInitialize`, the pool must contain the configured `rebateToken`; otherwise the initialization reverts.
-- The initiator of pool initialization becomes the pool owner (`PoolOwnable`), who can toggle rebates per-pool.
+## Overview
 
-### Rebate decision matrix (beforeSwap)
+The hook:
 
-| Condition | Rebate? | Side effects |
-| --- | --- | --- |
-| Oracle epochs disabled (`epochDurationBlocks == 0`) | No | Return ZERO_DELTA |
-| No available top (`topCount == 0`) or all processed in current epoch (`processedInTopEpoch >= topCount`) | No | Return ZERO_DELTA |
-| Pool not configured for rebates (`isRebateEnabled[poolId] == false`) | No | Return ZERO_DELTA |
-| Current top daemon is banned (`registry.banned(rebatePayer) == true`) | No | `processedInTopEpoch++`, `topOracle.iterNextTop()` |
-| Daemon `getRebateAmount(block.number)` call fails or returns < 32 bytes | No | `registry.setActiveFromHook(rebatePayer,false)`, emit `RebateDisabled(..., "rebateAmount failed")`, advance to next |
-| `getRebateAmount` returns `daemonRebateAmount <= 0` | No | `processedInTopEpoch++`, `topOracle.iterNextTop()` |
-| ERC20 `transferFrom(rebatePayer → poolManager, required)` fails | No | `registry.setActiveFromHook(rebatePayer,false)`, emit `RebateDisabled(..., "transfer failed")`, advance to next |
-| ERC20 `transferFrom` success but received < required | No | `registry.setActiveFromHook(rebatePayer,false)`, emit `RebateDisabled(..., "insufficient received")`, advance to next |
-| All checks pass; transferFrom covers full amount | Yes | `poolManager.settle()`, emit `RebateExecuted(daemonId, amount)`, attempt `accomplishDaemonJob()` (best-effort), compute delta, advance to next |
+- Runs on **`beforeSwap`** and **`afterInitialize`** events in Uniswap v4.
+- Interacts with the **TopOracle** to determine which daemon is responsible for rebates in the current epoch.
+- Pulls rebate tokens directly from daemon balances when conditions are met.
+- Executes daemon jobs after successful rebate payment.
+- Enforces **safety checks** (reentrancy, banned daemons, failed transfers).
 
-Notes:
-- After each decision (whether rebate paid or not), the hook advances the epoch cursor: `processedInTopEpoch++` and `topOracle.iterNextTop()`.
-- On errors attributable to a daemon, the daemon is deactivated via the registry (`setActiveFromHook(false)`), preventing further waste.
+The hook ensures that **rebates are only paid under valid conditions**, and that misbehaving daemons are automatically deactivated.
 
-### Rebate amount and direction
-- Amount comes from the daemon: `int128 daemonRebateAmount` (must be > 0). The hook requires full coverage of the unsigned `required = uint256(uint128(daemonRebateAmount))`.
-- Direction depends on swap side and token position:
-  - `rebateTokenIs0 = isRebateToken0[poolId]`
-  - `rebateOnSpecified = (params.zeroForOne && rebateTokenIs0) || (!params.zeroForOne && !rebateTokenIs0)`
-  - BeforeSwapDelta:
-    - specified token delta = `-daemonRebateAmount` if `rebateOnSpecified`, else `0`
-    - unspecified token delta = `-daemonRebateAmount` if `!rebateOnSpecified`, else `0`
+---
 
-### Per‑pool controls
-- Toggle: `toggleRebate(PoolKey)` (only pool owner)
-- Read: `getRebateState(PoolKey)`
+## Core Responsibilities
 
-### Oracle interactions during swap
-- If epochs are enabled, the hook calls `topOracle.maybeRequestTopUpdate()` to auto-trigger a refresh at epoch boundaries when no request is pending.
-- The hook uses `topOracle.topCount()`, `getCurrentTop()`, and `iterNextTop()` to cycle through the ranked set within an epoch.
+1. **Rebate Execution**
+   - When a swap happens, the hook determines if rebates should apply.
+   - Rebates are denominated in the **rebate token**, fixed at pool creation.
 
-### Moderation hooks
-- `registry.setActiveFromHook(rebatePayer, false)`: used when a daemon misbehaves (no response, short transfer, etc.).
-- `registry.banned(rebatePayer)`: banned daemons are skipped entirely.
+2. **Job Execution**
+   - After paying rebate, the daemon’s `accomplishDaemonJob()` is called.
+   - Failures in job execution do not affect the swap outcome, but are recorded.
 
-### Events
-- Emits `RebateDisabled(daemonId, reason)` on daemon-related issues.
-- Emits `RebateExecuted(daemonId, amount)` when a rebate is successfully paid.
-- Emits `DaemonJobSuccess/Failure` for the best‑effort `accomplishDaemonJob` callback (rebate is paid regardless of job success).
+3. **Enforcement**
+   - Reentrancy protection ensures swaps cannot be re-entered by malicious daemons.
+   - Misbehaving daemons are deactivated via the Registry.
 
-### Reference tests
-- See `test/ConfluxRebateTests.t.sol` for positive/negative cases covering the matrix above (activation toggles, banned flow, staticcall failures, transfer underpayment, directionality, and per‑pool enable/disable).
+---
 
-### Compatibility
-- Cancun EVM target (Uniswap v4 Hooks). Deploy with Foundry; wire the hook as authority into the registry/oracle once live on Sepolia.
+## Rebate Conditions (Comprehensive Table)
 
+| Condition                           | Rebate Paid? | Iteration Proceeds? | Daemon Disabled? | Daemon Banned? | Notes                                                                 |
+|-------------------------------------|--------------|----------------------|------------------|----------------|-----------------------------------------------------------------------|
+| **Epochs disabled** (`duration=0`)  | No           | No                   | No               | No             | System-wide off switch.                                               |
+| **No top daemons** (`topCount=0`)   | No           | No                   | No               | No             | Nothing to select.                                                    |
+| **All daemons exhausted**           | No           | No                   | No               | No             | End of epoch set reached.                                             |
+| **Banned daemon**                   | No           | Yes                  | Already banned   | Yes            | Skipped immediately.                                                  |
+| **Pool lacks rebate token**         | N/A (init revert) | N/A               | N/A              | N/A            | Hook initialization fails, not swap-time.                             |
+| **Rebates disabled on pool**        | No           | No                   | No               | No             | Pool owner toggled rebate off.                                        |
+| **Daemon rebateAmount call fails**  | No           | Yes                  | Yes              | No             | Marked inactive.                                                       |
+| **Daemon returns invalid data**     | No           | Yes                  | Yes              | No             | E.g., bad ABI decode.                                                 |
+| **Daemon returns ≤ 0 amount**       | No           | Yes                  | No               | No             | Simply skipped.                                                       |
+| **TransferFrom fails**              | No           | Yes                  | Yes              | No             | Daemon cannot pay. Disabled.                                          |
+| **Transfer amount < required**      | No           | Yes                  | Yes              | No             | Fee-on-transfer or shortfall. Disabled.                               |
+| **Successful rebate**               | Yes          | Yes                  | No               | No             | Job executed after transfer.                                          |
+| **Job execution fails**             | Yes          | Yes                  | No               | No             | Rebate still credited; job failure logged.                            |
+| **Reentrancy attempt**              | Yes (first)  | Yes                  | No               | No             | Further reentrant calls blocked by guard.                             |
 
+---
+
+## Invariants & Safety
+
+- **Swap safety:** swaps always succeed regardless of daemon failures.  
+- **Isolation:** misbehaving daemons are automatically disabled by the hook.  
+- **Reentrancy guard:** prevents malicious daemons from recursive swaps.  
+- **Banned state finality:** once banned, daemons cannot return.  
+- **Pool integrity:** only pools containing the rebate token can initialize with the hook.
+
+---
+
+## Lifecycle During Swap
+
+1. **Swap initiated.**  
+2. Hook queries Oracle for the current top daemon.  
+3. Checks all rebate conditions in order.  
+4. If valid:
+   - Daemon pays rebate in rebate token.  
+   - Daemon executes its job.  
+5. If invalid:
+   - No rebate occurs.  
+   - Daemon may be deactivated if faulty.  
+6. Oracle pointer advances to next daemon in top set (except in system-wide skips).
+
+---
+
+## Summary
+
+The Conflux Hook is the **execution engine** of the rebate system:  
+- It ensures only **valid daemons** pay rebates.  
+- Protects swaps from disruption by daemon misbehavior.  
+- Enforces **all rebate conditions** consistently, with clear secondary actions.  
+
+It is the final guardrail connecting **swaps, the Oracle, and the Registry** into a secure rebate ecosystem.

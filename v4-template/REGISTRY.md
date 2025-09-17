@@ -1,102 +1,154 @@
-## Daemon Registry (Design & Usage)
+# The Daemon Registry
 
-This document describes the on-chain registry used by the hook/oracle flow.
+The **Daemon Registry** is the on-chain contract that manages the lifecycle of daemons in the Conflux system. It acts as the **source of truth** for which daemons exist, who controls them, and whether they are eligible to participate in rebate programs.
 
-### Scope
-- Contracts: `src/base/DaemonRegistry.sol` (core) and `src/DaemonRegistryModerated.sol` (owner + hook authority)
-- Purpose: keep a list of daemon contracts, map addresses <-> ids, manage activation/ban state, provide read APIs for Functions/Hook
+---
 
-### Data model
-- Address list `_daemonAddresses` where index is the daemon id (`uint16`)
-- Mappings:
-  - `exists[address] -> bool`
-  - `addressToId[address] -> uint16`, `idToAddress[uint16] -> address`
-  - `active[address] -> bool`
-  - `daemonOwner[address] -> address` (who can toggle activation via public methods)
-  - `banned[address] -> bool` (permanently excluded until unbanned by admin)
-- Compact activation bitmap: `mapping(uint256 wordIndex => uint256 word)` to track active ids efficiently; `bitWordCount` tracks size
+## Overview
 
-### Ids and packing
-- Id assignment is sequential: `uint16 id = uint16(_daemonAddresses.length)` at add-time
-  - Packed address list/hash:
-    - `packedAll()` returns `abi.encodePacked(_daemonAddresses)`
-    - `packedHash()` returns `keccak256(abi.encodePacked(_daemonAddresses))`
-  - Packed (id,address) pairs:
-    - `packedPairs()` returns `[id(2 bytes, big-endian) | address(20 bytes)] * N`
-    - `packedPairsHash()` returns `keccak256(packedPairs())`
+The registry:
 
-### Roles
-- Owner (registry owner): can add/activate/deactivate/ban; can assign `hookAuthority`
-- Hook authority (hook contract): limited moderation via hook-only endpoints
+- Stores all registered daemon addresses with their owner associations.
+- Maintains **status flags** for each daemon:
+  - **Active** — eligible to be selected as a rebate provider.
+  - **Inactive** — exists but not currently eligible.
+  - **Banned** — permanently excluded for malicious or invalid behavior.
+- Exposes controlled functions for:
+  - Adding new daemons.
+  - Activating / deactivating daemons.
+  - Banning daemons.
+  - Assigning hook authority.
 
-### Core admin (owner)
-- `add(address daemon, address owner_)`
-- `addMany(address[] daemonAddresses, address[] owners)`
-- `activateMany(address[] daemonAddresses)` / `deactivateMany(address[] daemonAddresses)`
-- `banDaemon(address daemon)` (also clears activation)
-- `transferOwnership(address newOwner)` and `setHookAuthority(address hook)` (in `DaemonRegistryModerated`)
+The registry enforces **ownership-based permissions** and **authority constraints** to guarantee that only authorized actors can mutate daemon states.
 
-### Hook-side moderation (authority)
-- `setActiveFromHook(address daemon, bool isActive)`
-- `banFromHook(address daemon)`
+---
 
-### Public owner-facing toggles (per daemon owner)
-- `setActive(address daemon, bool isActive)`
-- `setActiveById(uint16 daemonId, bool isActive)`
-- Both require `msg.sender == daemonOwner[daemon]`
+## Contract: `DaemonRegistryModerated`
 
-### Read APIs (used by Functions and the Hook)
-- Addressing:
-  - `length() -> uint256`
-  - `getAt(uint256 index) -> address`
-  - `getAll() -> address[]`
-  - `getById(uint16 daemonId) -> address`
-- Aggregations for Functions off-chain JS:
-  - `aggregatePointsRange(start, count, blockNumber) -> int128[]`
-  - Overload: `aggregatePointsRange(start, count) -> uint128[]` (current block, non-negative clamp)
-  - `aggregatePointsAll(blockNumber) -> int128[]`
-  - `aggregatePointsMasked(blockNumber) -> int128[]` (inactive => 0)
-  - All call `IDaemon(daemon).getRebateAmount(blockNumber) returns (int128)` safely (try/catch)
-- Activation map utilities:
-  - `activationBitmap() -> bytes`
-  - `activationMeta() -> (uint256 total, bytes bitmap)`
+The implementation used in Conflux is `DaemonRegistryModerated`, which introduces strict moderation and role separation.
 
-### Integration points
-- Chainlink Functions source reads registry state via the functions above to rank daemons
-- `TopOracle` reads `length()` and `getById()` during request orchestration and result usage
-- `ConfluxHook` uses `addressToId(address)` and moderation endpoints from `DaemonRegistryModerated`
+### Core Roles
 
-### Events
-- `Added(address target, uint16 id)`
-- `ActivationChanged(address target, uint16 id, bool active)`
-- `DaemonBanned(address target, uint16 id)`
-- `OwnershipTransferred(address previousOwner, address newOwner)` (moderated)
-- `HookAuthoritySet(address hook)` (moderated)
+- **Owner (admin):**
+  - Can add, activate, deactivate, or ban daemons.
+  - Can set hook authority (the hook contract that automates moderation).
+- **Hook Authority:**
+  - Special role assigned to the Conflux hook.
+  - Can disable daemons automatically when they misbehave during swaps (e.g., failing to pay rebate, reverting, returning invalid data).
+- **Daemon Owner:**
+  - The account that owns a specific daemon.
+  - Can voluntarily toggle its daemon’s activation (within allowed rules).
 
-### Errors (selected)
-- `ZeroAddress`, `DuplicateDaemon`, `CapacityExceeded`, `IdDoesNotExist`, `NotExist`, `DaemonIsBanned`, `NotDaemonOwner`, `LengthMismatch`, `NotOwner`, `NotAuthorized`
+---
 
-### Gas & storage notes
-- Activation bitmap keeps toggles O(1) per daemon without scanning arrays
-- Pair/address packing enables cheap hashing/snapshotting to detect registry changes off-chain
-- Adds and bans are append/flag operations; no array compaction (ids remain stable)
+## State Variables
 
-### Safety & invariants
-- `add*` rejects duplicates and zero addresses; max ~1200 daemons (fits `uint16` and internal limits)
-- `ban*` immediately clears activation bit for the daemon
-- Public toggles require daemon-specific ownership; owner/hook can still override via admin endpoints
+- `mapping(address => bool) active`  
+  Tracks whether a daemon is currently active.
 
-### Compatibility
-- Paris-compatible; does not rely on Cancun features. Can be deployed with Hardhat alongside `TopOracle`
+- `mapping(address => bool) banned`  
+  Tracks whether a daemon has been banned.
 
-### Typical lifecycle
-1) Owner deploys `DaemonRegistryModerated`
-2) Owner `addMany` with daemon owners; optionally `activateMany`
-3) Hook gets assigned via `setHookAuthority` and may moderate misbehaving daemons during swaps
-4) Functions/Oracle read registry to compute and store the ranked top
+- `mapping(address => address) owners`  
+  Maps each daemon to its owner.
 
-### Testing considerations
-- Use example `LinearDaemon` for deterministic `getRebateAmount()`
-- For Functions local tests, call aggregation views and ensure inactive/banned paths return 0
+- `address hookAuthority`  
+  The designated hook contract allowed to enforce moderation actions.
 
+- `uint256 totalDaemons`  
+  Count of all registered daemons.
 
+---
+
+## Key Functions
+
+### Admin-only
+- `add(address daemon, address owner)`  
+  Registers a new daemon under an owner.
+
+- `addMany(address[] daemons, address[] owners)`  
+  Batch version of `add`.
+
+- `setActive(address daemon, bool state)`  
+  Enables or disables a daemon.
+
+- `banDaemon(address daemon)`  
+  Marks daemon as banned and disables it permanently.
+
+- `setHookAuthority(address hook)`  
+  Assigns the hook contract with moderation powers.
+
+---
+
+### Hook Authority-only
+- `banFromHook(address daemon)`  
+  Hook can immediately ban a daemon when it misbehaves.
+
+- `setActiveFromHook(address daemon, bool state)`  
+  Hook can toggle activity status automatically in response to runtime failures.
+
+---
+
+### Daemon Owner-only
+- `setActive(address daemon, bool state)`  
+  Daemon owner may voluntarily toggle its active status (cannot override bans).
+
+---
+
+## Lifecycle
+
+1. **Registration**  
+   Admin adds a daemon with an owner address.
+
+2. **Activation**  
+   Admin or daemon owner marks it active → daemon is eligible for selection by the oracle.
+
+3. **Participation**  
+   Active daemons may be selected in rebate epochs and pay rebates during swaps.
+
+4. **Failure or Misbehavior**  
+   - If daemon fails to pay rebate, reverts, or returns invalid data → hook disables it via `setActiveFromHook`.
+   - If malicious, admin (or hook) calls `banDaemon`.
+
+5. **Banned State**  
+   - Irreversible.
+   - Daemon is permanently excluded from participation.
+
+---
+
+## Invariants & Safety
+
+- **Registry size limit:** capped (e.g., 1200 daemons) to prevent unbounded growth.
+- **Top set size:** limited to 128 active IDs at a time.
+- **Bans override everything:** banned daemons cannot be reactivated.
+- **Hook moderation:** ensures runtime failures do not compromise swap execution.
+
+---
+
+## Integration With TopOracle
+
+- The registry is the source of daemon IDs used by **TopOracle** to construct top sets for epochs.
+- Oracle queries and Chainlink fulfillments reference daemon IDs as assigned in the registry.
+- Misbehaving daemons are automatically deactivated by the hook → registry state is updated → Oracle will skip them in future top sets.
+
+---
+
+## Testing Scenarios
+
+The following behaviors are tested in the suite:
+
+- **Successful lifecycle:** add → activate → participate → rebate.  
+- **Admin controls:** only registry owner can add/ban/set authority.  
+- **Hook moderation:** hook disables or bans failing daemons.  
+- **Edge cases:** exceeding cap, banning already banned, toggling active state by non-owner, etc.  
+
+---
+
+## Summary
+
+The registry enforces a **secure and moderated marketplace of daemons**:
+- Owners can contribute daemons.  
+- The system (hook + oracle) enforces correctness.  
+- Bad actors are isolated quickly.  
+
+It is the backbone of daemon trust management in the Conflux rebate mechanism.
