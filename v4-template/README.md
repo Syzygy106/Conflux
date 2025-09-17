@@ -77,6 +77,12 @@ Hook deployment failures are caused by incorrect flags or incorrect salt mining
 
 </details>
 
+### Docs Index (this repo)
+
+- Registry: `REGISTRY.md`
+- Oracle (TopOracle): `ORACLE.md`
+- Hook (ConfluxHook): `HOOK.md`
+
 ### Additional Resources
 
 - [Uniswap v4 docs](https://docs.uniswap.org/contracts/v4/overview)

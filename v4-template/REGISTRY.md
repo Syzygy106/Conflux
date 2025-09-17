@@ -12,7 +12,7 @@ The registry:
 - Maintains **status flags** for each daemon:
   - **Active** — eligible to be selected as a rebate provider.
   - **Inactive** — exists but not currently eligible.
-  - **Banned** — permanently excluded for malicious or invalid behavior.
+- **Banned** — permanently excluded for malicious or invalid behavior (no unban implemented).
 - Exposes controlled functions for:
   - Adding new daemons.
   - Activating / deactivating daemons.

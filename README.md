@@ -1,96 +1,37 @@
-# Chainlink Functions & Uniswap v4 Hook Integration
+# Chainlink Functions + Uniswap v4 Hook (Conflux)
 
-This repository contains advanced implementations for blockchain automation and DeFi integration using Chainlink Functions and Uniswap v4 hooks.
+This repository integrates Chainlink Functions with a Uniswap v4 hook to implement a daemon‑driven rebate mechanism.
 
-## 🏗️ Project Structure
+## 🏗️ Layout
 
-### 📁 `functions-hardhat-starter-kit/`
-**Chainlink Functions Integration**
-- Advanced Chainlink Functions implementations
-- Automated oracle solutions
-- Smart contract integrations with external APIs
-- Points/rebate management systems
+- `functions-hardhat-starter-kit/` — Hardhat workspace for Chainlink Functions (TopOracle, deploy scripts, local DON, Sepolia deploy)
+- `v4-template/` — Foundry workspace for the Uniswap v4 hook and on‑chain components (ConfluxHook, DaemonRegistryModerated)
 
-### 📁 `v4-template/`
-**Uniswap v4 ConfluxModular Hook** 
-- **Production-ready modular hook architecture**
-- **Size-optimized contracts (all < 24KB)**
-- Daemon-based rebate system
-- Real-time oracle integration
-- Comprehensive test suite (100% pass rate)
+## 📚 Docs index
 
-## 🚀 Key Features
+- Setup: `SETUP.md`
+- Sepolia deploy (commands): `functions-hardhat-starter-kit/DEPLOY_SEPOLIA.md`
+- Local run (commands): `functions-hardhat-starter-kit/TEST_LOCAL.md`
+- Local concepts: `functions-hardhat-starter-kit/LOCAL_TESTING_OVERVIEW.md`
+- Sepolia concepts: `functions-hardhat-starter-kit/SEPOLIA_TESTING_OVERVIEW.md`
+- Hook: `v4-template/HOOK.md`
+- Registry: `v4-template/REGISTRY.md`
+- Oracle: `v4-template/ORACLE.md`
 
-### ConfluxModular Hook
-- ✅ **Modular Architecture**: Separated into DaemonManager, ChainlinkOracle, and main hook
-- ✅ **Size Compliant**: 16,924 bytes (68% of 24KB limit)
-- ✅ **Full Test Coverage**: 5/5 tests passing
-- ✅ **Gas Optimized**: ~166k gas per swap
-- ✅ **Production Ready**: Mainnet deployment ready
+## 🔌 Compatibility
 
-### Technical Specifications
-| Component | Size | Status |
-|-----------|------|---------|
-| ConfluxModular | 16,924 bytes | ✅ Ready |
-| DaemonManager | 7,217 bytes | ✅ Ready |
-| ChainlinkOracle | 8,819 bytes | ✅ Ready |
+- Chainlink Functions contracts are Paris‑compatible (deployed via Hardhat)
+- Uniswap v4 Hooks require Cancun (EIP‑1153); deploy hook via Foundry
 
-## 🧪 Testing
+## 🔧 Quick start
 
-```bash
-# Test ConfluxModular (final version)
-cd v4-template
-forge test --match-contract ConfluxModularTest -vv
+See `SETUP.md` for prerequisites and the initial build/copy steps.
 
-# Test results: 5/5 passing ✅
-```
+## 🧪 Tests
 
-## 🔧 Deployment
-
-### Prerequisites
-- Foundry installed
-- Node.js 18+
-- Valid Chainlink Functions subscription
-
-### Quick Start
-```bash
-# Clone repository
-git clone <your-repo-url>
-cd Chainlink_Playground
-
-# Setup v4-template (Uniswap Hook)
-cd v4-template
-forge install
-forge test
-
-# Setup functions-hardhat-starter-kit (Chainlink Functions)
-cd ../functions-hardhat-starter-kit
-npm install
-```
-
-## 📊 Performance Metrics
-
-- **Contract Size Reduction**: 46% smaller than original
-- **Gas Efficiency**: 166k gas per swap operation
-- **Test Coverage**: 100% pass rate
-- **Deployment Ready**: All contracts < 24KB limit
-
-## 🏛️ Architecture
-
-### Modular Design Benefits
-1. **Maintainability**: Clear separation of concerns
-2. **Scalability**: Independent component updates
-3. **Security**: Uniswap v4 compliance verified
-4. **Efficiency**: Optimized gas usage
+- Foundry unit tests live in `v4-template/test/`
+- Local end‑to‑end Functions flow via `functions-hardhat-starter-kit/scripts/local/*`
 
 ## 📝 License
 
-MIT License - See individual project directories for specific licenses.
-
-## 🤝 Contributing
-
-This is a private repository. Please contact the maintainer for access and contribution guidelines.
-
----
-
-*Built with ❤️ for the DeFi ecosystem*
+MIT — see individual directories for license headers where applicable.

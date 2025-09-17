@@ -52,7 +52,7 @@ The hook ensures that **rebates are only paid under valid conditions**, and that
 | **Transfer amount < required**      | No           | Yes                  | Yes              | No             | Fee-on-transfer or shortfall. Disabled.                               |
 | **Successful rebate**               | Yes          | Yes                  | No               | No             | Job executed after transfer.                                          |
 | **Job execution fails**             | Yes          | Yes                  | No               | No             | Rebate still credited; job failure logged.                            |
-| **Reentrancy attempt**              | Yes (first)  | Yes                  | No               | No             | Further reentrant calls blocked by guard.                             |
+| **Reentrancy attempt**              | Yes (outer call only) | Yes           | No               | No             | Outer call proceeds; nested reentry blocked by guard.                 |
 
 ---
 
