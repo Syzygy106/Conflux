@@ -12,6 +12,8 @@ async function main() {
   const chainId: number = network.config.chainId || (await ethers.provider.getNetwork()).chainId
   const poolManager: string | undefined = process.env.POOL_MANAGER || POOL_MANAGER_BY_CHAIN[chainId]
   if (!poolManager) throw new Error(`POOL_MANAGER address not set for chainId ${chainId}`)
+  const hook: string | undefined = process.env.HOOK
+  if (!hook) throw new Error("HOOK address not set (spender for rebate transferFrom)")
 
   const linkToken = process.env.REBATE_TOKEN || LINK_SEPOLIA
   const linkAmount = ethers.utils.parseUnits(process.env.REBATE_AMOUNT || "1", 18) // 1 LINK per daemon
@@ -25,6 +27,7 @@ async function main() {
   const [deployer] = await ethers.getSigners()
   console.log("Deployer:", deployer.address)
   console.log("PoolManager:", poolManager)
+  console.log("Hook (spender):", hook)
   console.log("LINK token:", linkToken)
 
   const LinearDaemon = await ethers.getContractFactory("contracts/v4/examples/LinearDaemon.sol:LinearDaemon")
@@ -55,9 +58,12 @@ async function main() {
     const tx2 = await Link.transfer(addr, linkAmount)
     await tx2.wait()
 
-    // 3) Approve PoolManager to pull LINK from the daemon
-    const tx3 = await d.approveRebateSpender(poolManager, linkAmount)
+    // 3) Approve Hook to pull LINK from the daemon (Hook calls transferFrom)
+    const tx3 = await d.approveRebateSpender(hook, linkAmount)
     await tx3.wait()
+    // 3b) Also approve PoolManager (optional safety)
+    const tx3b = await d.approveRebateSpender(poolManager, linkAmount)
+    await tx3b.wait()
 
     // 4) Send a bit of ETH (default 0.05); guarded with try/catch
     if (ethAmount.gt(0)) {
@@ -70,7 +76,7 @@ async function main() {
       }
     }
 
-    console.log(`Done: token set, ${ethers.utils.formatUnits(linkAmount, 18)} LINK sent, approval set, ETH handled`)
+    console.log(`Done: token set, ${ethers.utils.formatUnits(linkAmount, 18)} LINK sent, approvals set (hook + manager), ETH handled`)
   }
 }
 

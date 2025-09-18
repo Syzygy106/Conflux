@@ -31,18 +31,31 @@ This document explains the intent behind deploying to Sepolia with Chainlink Fun
    - Reference DON-hosted secrets (`slot/version`) and set `subscriptionId`
 6) Trigger first request and observe fulfill
    - `TopOracle` should set `hasPendingTopRequest`, then, on fulfill, store packed top ids and compute `topCount`
+7) Deploy Uniswap v4 Hook and wire authorities
+   - Deploy `ConfluxHook` via Foundry (Cancun)
+   - Set `hookAuthority` on registry and grant hook rights on oracle
+8) Configure daemons for rebates
+   - Set rebate token (LINK), fund daemons with LINK and a bit of ETH
+   - Approve the Hook as ERC20 spender (required), and optionally the PoolManager
+9) Validate with a tiny swap
+   - Perform a minimal swap through the hook-enabled pool and observe rebate/job events
 
 ### Validation checklist
 - Template stored on `TopOracle` (tx confirmed)
 - `refreshTopNow()` succeeds and emits a request ID
 - Functions UI shows request received and computed (no “blocked resource” errors)
 - `TopOracle` after fulfill: `topCount > 0`, `hasPendingTopRequest == false`, epoch updated
+- Hook wired as authority on both registry and oracle
+- Daemons have LINK balance and ERC20 allowance to the Hook
+- Tiny swap emits `RebateExecuted(daemonId, amount)` and `DaemonJobSuccess(daemonId)`
 
 ### Common pitfalls (Sepolia)
-- Template tx not mined before refresh → "tpl not set" revert; wait 1–2 confirmations
+- Template tx not mined before refresh → "tpl not set"; wait 1–2 confirmations
 - Missing/expired DON secrets → request fails on DON; re-upload and re-run template setup
 - `TopOracle` not added as consumer → request rejected; fix in UI and retry
 - Insufficient LINK in subscription → request not executed; fund and retry
+- No allowance to Hook from daemon → rebate transferFrom fails; approve Hook as spender
+- Pool without rebate token → hook initialization reverts for that pool
 
 ### Iteration/Rollback
 - If off-chain JS source changes, re-run the template setup step to replace the inline source
@@ -50,6 +63,7 @@ This document explains the intent behind deploying to Sepolia with Chainlink Fun
 
 ### After validation
 - Deploy the Uniswap v4 Hook (Foundry, Cancun) and wire authorities so the hook can trigger/iterate epochs and moderate daemons
+- Configure and fund daemons (LINK + ETH), set approvals to Hook (required) and PoolManager (optional)
 - Keep subscription funded and rotate secrets before TTL expiry
 
 ### Compatibility and risks
@@ -64,5 +78,9 @@ This document explains the intent behind deploying to Sepolia with Chainlink Fun
   - Ensure subscription has LINK before requests
   - DON-hosted secrets expire (TTL). Re-upload before expiry and re-run template setup
   - Local DON is a simulation; always validate at least one full request/fulfill on Sepolia
+
+### Notes on amounts and pricing
+- Rebate amounts returned by daemons are token wei (raw units). If you expect e.g. 0.01 LINK, return `1e16`
+- Pool initialization price affects which side’s amount is consumed when adding liquidity. Consider parameterizing initial tick if you need asymmetric amounts consumed.
 
 
