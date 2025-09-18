@@ -9,6 +9,7 @@ This repository integrates Chainlink Functions with a Uniswap v4 hook to impleme
 
 ## 📚 Docs index
 
+- Concept overview: `Conflux.md`
 - Setup: `SETUP.md`
 - Sepolia deploy (commands): `functions-hardhat-starter-kit/DEPLOY_SEPOLIA.md`
 - Local run (commands): `functions-hardhat-starter-kit/TEST_LOCAL.md`
